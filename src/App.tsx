@@ -369,8 +369,11 @@ const App: React.FC = () => {
         console.log("[App] Using CoreAudio backend (Default).");
       }
 
+      const cameraSnap = localStorage.getItem('natively_camera_snap') !== 'false';
+
       const result = await window.electronAPI.startMeeting({
-        audio: { inputDeviceId, outputDeviceId, enableVoiceProcessing }
+        audio: { inputDeviceId, outputDeviceId, enableVoiceProcessing },
+        overlayPosition: { cameraSnap },
       });
       if (result.success) {
         analytics.trackMeetingStarted();

@@ -1137,6 +1137,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
   profileGetNotes: () => ipcRenderer.invoke('profile:get-notes'),
   profileSaveNotes: (content: string) => ipcRenderer.invoke('profile:save-notes', content),
 
+  // Autopilot
+  autopilotGet: () => ipcRenderer.invoke('autopilot:get'),
+  autopilotSet: (enabled: boolean) => ipcRenderer.invoke('autopilot:set', enabled),
+  autopilotKill: () => ipcRenderer.invoke('autopilot:kill'),
+  onAutopilotStatus: (callback: (status: 'idle' | 'pending' | 'generating') => void) => {
+    const subscription = (_: any, status: 'idle' | 'pending' | 'generating') => callback(status);
+    ipcRenderer.on('autopilot-status', subscription);
+    return () => ipcRenderer.removeListener('autopilot-status', subscription);
+  },
+  onAutopilotState: (callback: (state: { enabled: boolean }) => void) => {
+    const subscription = (_: any, state: { enabled: boolean }) => callback(state);
+    ipcRenderer.on('autopilot-state', subscription);
+    return () => ipcRenderer.removeListener('autopilot-state', subscription);
+  },
+
   // Tavily Search API
   setTavilyApiKey: (apiKey: string) => ipcRenderer.invoke('set-tavily-api-key', apiKey),
 

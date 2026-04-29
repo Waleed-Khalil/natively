@@ -586,6 +586,29 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, init
         return stored !== 'false';
     });
 
+    // Autopilot — autonomous AI suggestion fire policy (default off, gated
+    // by SettingsManager on the main side).
+    const [autopilotEnabled, setAutopilotEnabled] = useState<boolean>(false);
+    useEffect(() => {
+        let unsubscribeState: (() => void) | undefined;
+        let mounted = true;
+        (async () => {
+            try {
+                const res = await window.electronAPI.autopilotGet?.();
+                if (mounted && res) setAutopilotEnabled(!!res.enabled);
+            } catch (e) {
+                console.error('[Settings] autopilotGet failed', e);
+            }
+        })();
+        unsubscribeState = window.electronAPI.onAutopilotState?.(({ enabled }) => {
+            setAutopilotEnabled(!!enabled);
+        });
+        return () => {
+            mounted = false;
+            unsubscribeState?.();
+        };
+    }, []);
+
     // Recognition Language
     const [recognitionLanguage, setRecognitionLanguage] = useState('');
     const [selectedSttGroup, setSelectedSttGroup] = useState('');
@@ -901,6 +924,10 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, init
     const [enableVoiceProcessing, setEnableVoiceProcessing] = useState<boolean>(() => {
         return localStorage.getItem('enableVoiceProcessing') !== 'false';
     });
+
+    const [cameraSnap, setCameraSnap] = useState<boolean>(() =>
+        localStorage.getItem('natively_camera_snap') !== 'false'
+    );
 
     // Per-process audio capture (macOS): manually pick which app's audio the
     // CoreAudio Tap should target. Avoids the Chromium auto-detection guesswork.
@@ -1764,6 +1791,30 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, init
                                                     </div>
                                                 </div>
 
+
+                                                {/* Autopilot */}
+                                                <div className="flex items-center justify-between px-4 py-3">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 bg-bg-item-surface rounded-lg border border-border-subtle flex items-center justify-center text-text-tertiary">
+                                                            <Zap size={20} />
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-sm font-bold text-text-primary">Autopilot <span className="text-[10px] uppercase tracking-wider text-amber-500 ml-1">Beta</span></h3>
+                                                            <p className="text-xs text-text-secondary mt-0.5">Auto-generate suggestions when the other party asks a question. Press <span className="font-mono">⌘⇧K</span> to kill instantly.</p>
+                                                        </div>
+                                                    </div>
+                                                    <div
+                                                        onClick={async () => {
+                                                            const next = !autopilotEnabled;
+                                                            setAutopilotEnabled(next);
+                                                            try { await window.electronAPI.autopilotSet?.(next); }
+                                                            catch (e) { console.error('[Settings] autopilotSet failed', e); }
+                                                        }}
+                                                        className={`w-11 h-6 rounded-full relative transition-colors cursor-pointer ${autopilotEnabled ? 'bg-accent-primary' : 'bg-bg-toggle-switch border border-border-muted'}`}
+                                                    >
+                                                        <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${autopilotEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                                    </div>
+                                                </div>
 
                                                 {/* Theme */}
                                                 <div className="flex items-center justify-between px-4 py-3">
@@ -3564,6 +3615,28 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, init
                                                         <div
                                                             className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform ${enableVoiceProcessing ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
                                                         />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Camera-aware overlay placement */}
+                                            <div className="bg-bg-item-surface rounded-xl border border-border-subtle p-4">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div>
+                                                        <h3 className="text-sm font-bold text-text-primary">Camera-aware placement</h3>
+                                                        <p className="text-xs text-text-secondary mt-0.5 max-w-[300px] leading-relaxed">
+                                                            Snap overlay to your camera axis so your eyes stay near the lens during interviews
+                                                        </p>
+                                                    </div>
+                                                    <div
+                                                        onClick={() => {
+                                                            const next = !cameraSnap;
+                                                            setCameraSnap(next);
+                                                            localStorage.setItem('natively_camera_snap', next ? 'true' : 'false');
+                                                        }}
+                                                        className={`w-11 h-6 rounded-full relative transition-colors shrink-0 cursor-pointer ${cameraSnap ? 'bg-emerald-500' : 'bg-bg-toggle-switch border border-border-muted'}`}
+                                                    >
+                                                        <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform ${cameraSnap ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
                                                     </div>
                                                 </div>
                                             </div>

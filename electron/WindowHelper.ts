@@ -39,6 +39,10 @@ export class WindowHelper {
   // Movement variables (apply to active window)
   private step: number = 20
 
+  // When true, new meetings snap the overlay to the top-center of the built-in
+  // display (where the FaceTime camera lives) instead of centering on screen.
+  private cameraSnapEnabled: boolean = true;
+
   constructor(appState: AppState) {
     this.appState = appState
   }
@@ -395,6 +399,23 @@ export class WindowHelper {
     console.log('[WindowHelper] Overlay position reset to default for next meeting.');
   }
 
+  public setCameraSnapEnabled(enabled: boolean): void {
+    this.cameraSnapEnabled = enabled;
+  }
+
+  // Returns the position that places the overlay's top-center over the camera axis.
+  // On macOS the FaceTime lens is always at the top of the built-in Retina panel
+  // (display.internal === true). Falls back to the primary display on all-external setups.
+  private getCameraAwarePosition(overlayWidth: number): { x: number; y: number } {
+    const displays = screen.getAllDisplays();
+    const cameraDisplay = displays.find(d => d.internal) ?? screen.getPrimaryDisplay();
+    const wa = cameraDisplay.workArea;
+    return {
+      x: Math.floor(wa.x + (wa.width - overlayWidth) / 2),
+      y: wa.y + 8,
+    };
+  }
+
   public getLastOverlayBounds(): Electron.Rectangle | null {
     // If no in-memory bounds exist, return null to signify no user-initiated movement.
     if (this.overlayBounds) return { ...this.overlayBounds };
@@ -548,18 +569,25 @@ export class WindowHelper {
       const workArea = this.getDisplayWorkArea(savedBounds ?? currentBounds);
       const maxAllowedWidth = Math.floor(workArea.width * 0.9);
       const maxAllowedHeight = Math.floor(workArea.height * 0.9);
+      const defaultPos = this.cameraSnapEnabled
+        ? this.getCameraAwarePosition(WindowHelper.OVERLAY_DEFAULT_WIDTH)
+        : {
+            x: Math.floor(workArea.x + (workArea.width - WindowHelper.OVERLAY_DEFAULT_WIDTH) / 2),
+            y: Math.floor(workArea.y + (workArea.height - WindowHelper.OVERLAY_DEFAULT_WIDTH) / 2),
+          };
+
       const targetBounds = savedBounds
         ? {
             x: Math.min(Math.max(savedBounds.x, workArea.x), workArea.x + workArea.width - Math.min(savedBounds.width, maxAllowedWidth)),
             y: Math.min(Math.max(savedBounds.y, workArea.y), workArea.y + workArea.height - Math.min(savedBounds.height, maxAllowedHeight)),
             width: Math.min(savedBounds.width, maxAllowedWidth),
-            height: Math.min(savedBounds.height, maxAllowedHeight)
+            height: Math.min(savedBounds.height, maxAllowedHeight),
           }
         : {
-            x: Math.floor(workArea.x + (workArea.width - WindowHelper.OVERLAY_DEFAULT_WIDTH) / 2),
-            y: Math.floor(workArea.y + (workArea.height - WindowHelper.OVERLAY_DEFAULT_WIDTH) / 2),
+            x: defaultPos.x,
+            y: defaultPos.y,
             width: WindowHelper.OVERLAY_DEFAULT_WIDTH,
-            height: Math.max(Math.min(currentBounds.height, maxAllowedHeight), WindowHelper.OVERLAY_MIN_HEIGHT)
+            height: Math.max(Math.min(currentBounds.height, maxAllowedHeight), WindowHelper.OVERLAY_MIN_HEIGHT),
           };
 
       this.overlayWindow.setBounds(targetBounds);

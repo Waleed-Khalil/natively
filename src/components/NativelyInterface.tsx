@@ -12,8 +12,6 @@ import {
     ChevronDown,
     Lightbulb,
     CornerDownLeft,
-    Mic,
-    MicOff,
     Image,
     Camera,
     X,
@@ -92,15 +90,12 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
     const [sttUserError, setSttUserError] = useState<string>('');
     const [sttUserProvider, setSttUserProvider] = useState<string>('');
     const [sttInterviewerStatus, setSttInterviewerStatus] = useState<'connected' | 'reconnecting' | 'failed'>('connected');
+    const [autopilotStatus, setAutopilotStatus] = useState<'idle' | 'pending' | 'generating'>('idle');
     const [sttInterviewerError, setSttInterviewerError] = useState<string>('');
     const [sttInterviewerProvider, setSttInterviewerProvider] = useState<string>('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [conversationContext, setConversationContext] = useState<string>('');
-    const [isManualRecording, setIsManualRecording] = useState(false);
-    const isRecordingRef = useRef(false);  // Ref to track recording state (avoids stale closure)
-    const [manualTranscript, setManualTranscript] = useState('');
-    const manualTranscriptRef = useRef<string>('');
     const [showTranscript, setShowTranscript] = useState(() => {
         const stored = localStorage.getItem('natively_interviewer_transcript');
         return stored !== 'false';
@@ -123,8 +118,6 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
     const [isInterviewerSpeaking, setIsInterviewerSpeaking] = useState(false);  // Track if actively speaking
     const [conversationTurns, setConversationTurns] = useState<ConversationTurn[]>([]);
     const [livePartial, setLivePartial] = useState<{ speaker: 'interviewer' | 'user'; text: string } | null>(null);
-    const [voiceInput, setVoiceInput] = useState('');  // Accumulated user voice input
-    const voiceInputRef = useRef<string>('');  // Ref for capturing in async handlers
     const textInputRef = useRef<HTMLInputElement>(null); // Ref for input focus
     const isStealthRef = useRef<boolean>(false); // Tracks if the next expansion should be stealthy
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -216,6 +209,17 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
         window.electronAPI.setModel(modelId)
             .catch((err: any) => console.error("Failed to set model:", err));
     };
+
+    // Subscribe to autopilot status updates so we can render the subtle
+    // pending/generating indicator on the top pill. Idle is the default; any
+    // pending fire updates this state and the pill animates accordingly.
+    useEffect(() => {
+        if (!window.electronAPI?.onAutopilotStatus) return;
+        const unsubscribe = window.electronAPI.onAutopilotStatus((status) => {
+            setAutopilotStatus(status);
+        });
+        return () => unsubscribe();
+    }, []);
 
     // Listen for default model changes from Settings
     useEffect(() => {
@@ -397,14 +401,12 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
             setMessages([]);
             setInputValue('');
             setAttachedContext([]);
-            setManualTranscript('');
-            setVoiceInput('');
             setIsProcessing(false);
-            // Optionally reset connection status if needed, but connection persists
-
-            // Track new conversation/session if applicable?
-            // Actually 'app_opened' is global, 'assistant_started' is overlay.
-            // Maybe 'conversation_started' event?
+            setConversationTurns([]);
+            setRollingTranscript('');
+            setLivePartial(null);
+            setConversationContext('');
+            setAutopilotStatus('idle');
             analytics.trackConversationStarted();
         });
         return () => unsubscribe();
@@ -457,26 +459,6 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
 
         // Real-time Transcripts
         cleanups.push(window.electronAPI.onNativeAudioTranscript((transcript) => {
-            // When Answer button is active, capture USER transcripts for voice input
-            // Use ref to avoid stale closure issue
-            if (isRecordingRef.current && transcript.speaker === 'user') {
-                if (transcript.final) {
-                    // Accumulate final transcripts
-                    setVoiceInput(prev => {
-                        const updated = prev + (prev ? ' ' : '') + transcript.text;
-                        voiceInputRef.current = updated;
-                        return updated;
-                    });
-                    setManualTranscript('');  // Clear partial preview
-                    manualTranscriptRef.current = '';
-                } else {
-                    // Show live partial transcript
-                    setManualTranscript(transcript.text);
-                    manualTranscriptRef.current = transcript.text;
-                }
-                return;  // Don't add to messages while recording
-            }
-
             // Accept both speakers into the live conversation log so the user can
             // follow along with what they said vs. what the other party said.
             if (transcript.speaker !== 'interviewer' && transcript.speaker !== 'user') {
@@ -1329,143 +1311,6 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
     }, [currentModel]); // Ensure tracking captures correct model
 
 
-    const handleAnswerNow = async () => {
-        if (isManualRecording) {
-            // Stop recording - send accumulated voice input to Gemini
-            isRecordingRef.current = false;  // Update ref immediately
-            setIsManualRecording(false);
-            setManualTranscript('');  // Clear live preview
-
-            // Send manual finalization signal to STT Providers
-            window.electronAPI.finalizeMicSTT().catch(err => console.error('[NativelyInterface] Failed to send finalizeMicSTT:', err));
-
-            const currentAttachments = attachedContext;
-            setAttachedContext([]); // Clear context immediately on send
-
-            const question = (voiceInputRef.current + (manualTranscriptRef.current ? ' ' + manualTranscriptRef.current : '')).trim();
-            setVoiceInput('');
-            voiceInputRef.current = '';
-            setManualTranscript('');
-            manualTranscriptRef.current = '';
-
-            if (!question && currentAttachments.length === 0) {
-                // No voice input and no image — show real STT error if available
-                if (sttUserStatus === 'failed' && sttUserError) {
-                    setMessages(prev => [...prev, {
-                        id: Date.now().toString(),
-                        role: 'system',
-                        text: `❌ STT Error: ${sttUserError}`
-                    }]);
-                } else if (sttUserStatus === 'reconnecting') {
-                    setMessages(prev => [...prev, {
-                        id: Date.now().toString(),
-                        role: 'system',
-                        text: '⏳ STT is reconnecting, try again in a moment.'
-                    }]);
-                } else {
-                    setMessages(prev => [...prev, {
-                        id: Date.now().toString(),
-                        role: 'system',
-                        text: '⚠️ No speech detected. Try speaking closer to your microphone.'
-                    }]);
-                }
-                return;
-            }
-
-            // Show user's spoken question
-            setMessages(prev => [...prev, {
-                id: Date.now().toString(),
-                role: 'user',
-                text: question,
-                hasScreenshot: currentAttachments.length > 0,
-                screenshotPreview: currentAttachments[0]?.preview
-            }]);
-            
-            // Scroll to bottom when user sends message
-            setTimeout(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }, 50);
-
-            // Buy-time filler placeholder — instantly fills the streaming bubble
-            // with a natural stall line the user can read aloud while the LLM
-            // composes. Replaced by the first real token via onGeminiStreamToken.
-            setIsProcessing(true);
-            spawnFiller('answer_now', 'answer_now');
-
-            try {
-                let prompt = '';
-
-                if (currentAttachments.length > 0) {
-                    // Image + Voice Context
-                    prompt = `You are a helper. The user has provided a screenshot and a spoken question/command.
-User said: "${question}"
-
-Instructions:
-1. Analyze the screenshot in the context of what the user said.
-2. Provide a direct, helpful answer.
-3. Be concise.`;
-                } else {
-                    // JIT RAG pre-flight: try to use indexed meeting context first
-                    const ragResult = await window.electronAPI.ragQueryLive?.(question);
-                    if (ragResult?.success) {
-                        // JIT RAG handled it — response streamed via rag:stream-chunk events
-                        return;
-                    }
-
-                    // Voice Only (Smart Extract) — fallback
-                    prompt = `You are a real-time interview assistant. The user just repeated or paraphrased a question from their interviewer.
-Instructions:
-1. Extract the core question being asked
-2. Provide a clear, concise, and professional answer that the user can say out loud
-3. Keep the answer conversational but informative (2-4 sentences ideal)
-4. Do NOT include phrases like "The question is..." - just give the answer directly
-5. Format for speaking out loud, not for reading
-
-Provide only the answer, nothing else.`;
-                }
-
-                // Call Streaming API: message = question, context = instructions
-                requestStartTimeRef.current = Date.now();
-                await window.electronAPI.streamGeminiChat(question, currentAttachments.length > 0 ? currentAttachments.map(s => s.path) : undefined, prompt, { skipSystemPrompt: true });
-
-            } catch (err) {
-                // Initial invocation failing (e.g. IPC error before stream starts)
-                setIsProcessing(false);
-                setMessages(prev => {
-                    const last = prev[prev.length - 1];
-                    // If we just added the empty streaming placeholder, remove it or fill it with error
-                    if (last && last.isStreaming && last.text === '') {
-                        return prev.slice(0, -1).concat({
-                            id: Date.now().toString(),
-                            role: 'system',
-                            text: `❌ Error starting stream: ${err}`
-                        });
-                    }
-                    return [...prev, {
-                        id: Date.now().toString(),
-                        role: 'system',
-                        text: `❌ Error: ${err}`
-                    }];
-                });
-            }
-        } else {
-            // Start recording - reset voice input state
-            setVoiceInput('');
-            voiceInputRef.current = '';
-            setManualTranscript('');
-            isRecordingRef.current = true;  // Update ref immediately
-            setIsManualRecording(true);
-
-
-            // Ensure native audio is connected
-            try {
-                // Native audio is now managed by main process
-                // await window.electronAPI.invoke('native-audio-connect');
-            } catch (err) {
-                // Already connected, that's fine
-            }
-        }
-    };
 
     const handleManualSubmit = async () => {
         if (!inputValue.trim() && attachedContext.length === 0) return;
@@ -1825,7 +1670,6 @@ Provide only the answer, nothing else.`;
         handleFollowUp,
         handleFollowUpQuestions,
         handleRecap,
-        handleAnswerNow,
         handleClarify,
         handleCodeHint,
         handleBrainstorm
@@ -1837,7 +1681,6 @@ Provide only the answer, nothing else.`;
         handleFollowUp,
         handleFollowUpQuestions,
         handleRecap,
-        handleAnswerNow,
         handleClarify,
         handleCodeHint,
         handleBrainstorm
@@ -1845,7 +1688,7 @@ Provide only the answer, nothing else.`;
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            const { handleWhatToSay, handleFollowUp, handleFollowUpQuestions, handleRecap, handleAnswerNow, handleClarify, handleCodeHint, handleBrainstorm } = handlersRef.current;
+            const { handleWhatToSay, handleFollowUp, handleFollowUpQuestions, handleRecap, handleClarify, handleCodeHint, handleBrainstorm } = handlersRef.current;
 
             // Chat Shortcuts (Scope: Local to Chat/Overlay usually, but we allow them here if focused)
             if (isShortcutPressed(e, 'whatToAnswer')) {
@@ -1864,9 +1707,6 @@ Provide only the answer, nothing else.`;
                 } else {
                     handleRecap();
                 }
-            } else if (isShortcutPressed(e, 'answer')) {
-                e.preventDefault();
-                handleAnswerNow();
             } else if (isShortcutPressed(e, 'clarify')) {
                 e.preventDefault();
                 handleClarify();
@@ -2071,7 +1911,6 @@ Provide only the answer, nothing else.`;
                 if (actionButtonMode === 'brainstorm') handlers.handleBrainstorm();
                 else handlers.handleRecap();
             }
-            else if (action === 'answer') handlers.handleAnswerNow();
             else if (action === 'clarify') handlers.handleClarify();
             else if (action === 'codeHint') handlers.handleCodeHint();
             else if (action === 'brainstorm') handlers.handleBrainstorm();
@@ -2149,7 +1988,7 @@ Provide only the answer, nothing else.`;
                             appearance={appearance}
                             onLogoClick={() => window.electronAPI?.setWindowMode?.('launcher')}
                             sysActive={isInterviewerSpeaking}
-                            micActive={Boolean(livePartial && livePartial.speaker === 'user' && livePartial.text.trim()) || isManualRecording}
+                            micActive={Boolean(livePartial && livePartial.speaker === 'user' && livePartial.text.trim())}
                             sttHealth={
                                 sttUserStatus === 'failed' || sttInterviewerStatus === 'failed'
                                     ? 'failed'
@@ -2157,6 +1996,7 @@ Provide only the answer, nothing else.`;
                                         ? 'reconnecting'
                                         : 'connected'
                             }
+                            autopilotStatus={autopilotStatus}
                         />
                         <div
                             className={`relative w-[600px] max-w-full backdrop-blur-2xl border rounded-[24px] overflow-hidden flex flex-col draggable-area overlay-shell-surface console-enter console-enter-d1 ${overlayPanelClass}`}
@@ -2173,7 +2013,7 @@ Provide only the answer, nothing else.`;
                                 />
                                 <span
                                     className={`console-tape-bead is-you ${
-                                        (livePartial && livePartial.speaker === 'user' && livePartial.text.trim()) || isManualRecording
+                                        (livePartial && livePartial.speaker === 'user' && livePartial.text.trim())
                                             ? 'is-active'
                                             : ''
                                     }`}
@@ -2271,7 +2111,7 @@ Provide only the answer, nothing else.`;
                             ) : null}
 
                             {/* Chat History — editorial column */}
-                            {(messages.length > 0 || isManualRecording || isProcessing) && (
+                            {(messages.length > 0 || isProcessing) && (
                                 <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4 max-h-[clamp(300px,35vh,450px)] no-drag console-log">
                                     {messages.map((msg) => (
                                         <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up`}>
@@ -2319,25 +2159,6 @@ Provide only the answer, nothing else.`;
                                         </div>
                                     ))}
 
-                                    {/* Active Recording — phosphor live transcription */}
-                                    {isManualRecording && (
-                                        <div className="flex flex-col items-end gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                            {(manualTranscript || voiceInput) && (
-                                                <div className="max-w-[82%] console-you-rule pr-3 console-ink text-[13.5px] leading-[1.55] text-right">
-                                                    <div className="console-label console-you-soft mb-1">You · Live</div>
-                                                    {voiceInput}{voiceInput && manualTranscript ? ' ' : ''}{manualTranscript}
-                                                    <span className="console-caret" aria-hidden />
-                                                </div>
-                                            )}
-                                            {!manualTranscript && !voiceInput && (
-                                                <div className="flex gap-1 items-center">
-                                                    <span className="console-label console-you-soft">Listening</span>
-                                                    <span className="console-pulse-dot is-pulsing" style={{ width: 4, height: 4 }} />
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
                                     {/* Hide the "Composing" dots whenever a streaming system bubble
                                         already exists — the bubble's own pulse-dot in the header is
                                         the live signal, and stacking dots below adds noise. This
@@ -2379,35 +2200,6 @@ Provide only the answer, nothing else.`;
                                     <button onClick={handleFollowUpQuestions} className="console-key no-drag">
                                         Follow up
                                         <span className="console-key-glyph">⌘4</span>
-                                    </button>
-                                    <button
-                                        onClick={handleAnswerNow}
-                                        className={`console-key no-drag ${isManualRecording ? 'is-recording' : ''}`}
-                                        style={
-                                            isManualRecording
-                                                ? {
-                                                    color: '#FF6B6B',
-                                                    borderColor: 'rgba(255,107,107,0.35)',
-                                                    background: 'rgba(255,107,107,0.06)',
-                                                }
-                                                : undefined
-                                        }
-                                    >
-                                        {isManualRecording ? (
-                                            <>
-                                                <span
-                                                    className="inline-block w-1.5 h-1.5 rounded-full"
-                                                    style={{
-                                                        background: '#FF6B6B',
-                                                        boxShadow: '0 0 6px rgba(255,107,107,0.6)',
-                                                    }}
-                                                />
-                                                Stop
-                                            </>
-                                        ) : (
-                                            <>Answer</>
-                                        )}
-                                        <span className="console-key-glyph">⌘5</span>
                                     </button>
                                 </div>
                             </div>

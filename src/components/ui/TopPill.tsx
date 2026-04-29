@@ -15,6 +15,8 @@ interface TopPillProps {
     sysActive?: boolean;
     /** Optional — STT health for the right-side dot */
     sttHealth?: 'connected' | 'reconnecting' | 'failed';
+    /** Optional — autopilot status; shows a subtle dot when pending/generating */
+    autopilotStatus?: 'idle' | 'pending' | 'generating';
 }
 
 /**
@@ -40,6 +42,7 @@ export default function TopPill({
     micActive = false,
     sysActive = false,
     sttHealth = 'connected',
+    autopilotStatus = 'idle',
 }: TopPillProps) {
     const startedAt = useRef<number>(Date.now());
     const [, force] = useState(0);
@@ -144,6 +147,23 @@ export default function TopPill({
                         <>
                             <span className="w-px h-3 bg-[var(--console-rule)]" aria-hidden />
                             <span className={`console-pulse-dot ${sttDotClass}`} aria-label="STT status" />
+                        </>
+                    )}
+
+                    {autopilotStatus !== 'idle' && (
+                        <>
+                            <span className="w-px h-3 bg-[var(--console-rule)]" aria-hidden />
+                            <span
+                                className="inline-block rounded-full animate-pulse"
+                                aria-label={`Autopilot ${autopilotStatus}`}
+                                title={autopilotStatus === 'pending' ? 'Autopilot — preparing suggestion (⌘⇧K to cancel)' : 'Autopilot — generating suggestion'}
+                                style={{
+                                    width: 6,
+                                    height: 6,
+                                    background: autopilotStatus === 'generating' ? 'var(--console-accent)' : 'var(--console-them)',
+                                    boxShadow: '0 0 8px currentColor',
+                                }}
+                            />
                         </>
                     )}
                 </div>

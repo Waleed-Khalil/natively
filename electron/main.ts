@@ -155,6 +155,8 @@ import { KeybindManager } from "./services/KeybindManager"
 import { ProcessingHelper } from "./ProcessingHelper"
 
 import { IntelligenceManager } from "./IntelligenceManager"
+import { AutopilotOrchestrator } from "./AutopilotOrchestrator"
+import { ModesManager } from "./services/ModesManager"
 import { SystemAudioCapture } from "./audio/SystemAudioCapture"
 import { scanAudioSourcePids } from "./audio/audioSourcePidScanner"
 import { MicrophoneCapture } from "./audio/MicrophoneCapture"
@@ -222,6 +224,7 @@ export class AppState {
   public processingHelper: ProcessingHelper
 
   private intelligenceManager: IntelligenceManager
+  private autopilot: AutopilotOrchestrator | null = null
   private themeManager: ThemeManager
   private ragManager: RAGManager | null = null
   private knowledgeOrchestrator: any = null
@@ -384,6 +387,24 @@ export class AppState {
             }
           });
 
+        // Autopilot kill switch — silently disable, no focus change. Persists
+        // the new flag too so the user doesn't get re-surprised next launch.
+        } else if (actionId === 'autopilot:kill') {
+          this.autopilot?.disable();
+          SettingsManager.getInstance().set('autopilotEnabled', false);
+          BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) win.webContents.send('autopilot-state', { enabled: false });
+          });
+        } else if (actionId === 'autopilot:toggle') {
+          const currently = SettingsManager.getInstance().get('autopilotEnabled') === true;
+          const next = !currently;
+          SettingsManager.getInstance().set('autopilotEnabled', next);
+          if (next) this.autopilot?.enable();
+          else this.autopilot?.disable();
+          BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) win.webContents.send('autopilot-state', { enabled: next });
+          });
+
         // Window movement — move window position without focus change
         } else if (actionId === 'window:move-up') {
           this.windowHelper.moveWindowUp();
@@ -427,6 +448,28 @@ export class AppState {
 
     // Initialize IntelligenceManager with LLMHelper
     this.intelligenceManager = new IntelligenceManager(this.processingHelper.getLLMHelper())
+
+    // Autopilot is constructed eagerly but starts disabled. The renderer's
+    // toggle (or the Cmd/Ctrl+Shift+K kill switch) flips `enabled` at runtime.
+    // We instantiate ModesManager lazily inside getInstance() to ensure the
+    // DB layer is ready by the time autopilot reads the active mode.
+    try {
+      const autopilotEnabled = SettingsManager.getInstance().get('autopilotEnabled') === true;
+      this.autopilot = new AutopilotOrchestrator(
+        this.intelligenceManager,
+        ModesManager.getInstance(),
+        { enabled: autopilotEnabled }
+      );
+      this.autopilot.setStatusListener((status) => {
+        const helper = this.getWindowHelper();
+        helper.getLauncherWindow()?.webContents.send('autopilot-status', status);
+        helper.getOverlayWindow()?.webContents.send('autopilot-status', status);
+      });
+      console.log(`[Main] Autopilot initialized (enabled=${autopilotEnabled})`);
+    } catch (err) {
+      console.error('[Main] Failed to initialize Autopilot:', err);
+      this.autopilot = null;
+    }
 
     // Initialize ThemeManager
     this.themeManager = ThemeManager.getInstance()
@@ -889,13 +932,20 @@ export class AppState {
         );
       }
 
-      this.intelligenceManager.handleTranscript({
+      const transcriptSegment = {
         speaker: routedSpeaker,
         text: segment.text,
         timestamp: Date.now(),
         final: segment.isFinal,
         confidence: segment.confidence
-      });
+      };
+
+      this.intelligenceManager.handleTranscript(transcriptSegment);
+
+      // Feed the autopilot AFTER intelligence so the session tracker has the
+      // segment recorded by the time the orchestrator's silence-window timer
+      // fires and reaches into context.
+      this.autopilot?.onTranscript(transcriptSegment);
 
       // Feed final transcript to JIT RAG indexer
       if (segment.isFinal && this.ragManager) {
@@ -1835,6 +1885,11 @@ export class AppState {
     // the user moved it during the previous meeting session.
     this.windowHelper.resetOverlayPosition();
 
+    // Apply camera-snap preference: when enabled, switchToOverlay() will place
+    // the overlay at the top-center of the built-in display (FaceTime camera axis).
+    const cameraSnap = (metadata as any)?.overlayPosition?.cameraSnap !== false;
+    this.windowHelper.setCameraSnapEnabled(cameraSnap);
+
     // Emit session reset to clear UI state immediately
     this.getWindowHelper().getOverlayWindow()?.webContents.send('session-reset');
     this.getWindowHelper().getLauncherWindow()?.webContents.send('session-reset');
@@ -1897,6 +1952,7 @@ export class AppState {
   public async endMeeting(): Promise<void> {
     console.log('[Main] Ending Meeting...');
     this.isMeetingActive = false; // Block new data immediately
+    this.autopilot?.reset(); // Cancel any pending auto-fire across meeting boundaries
     this.broadcastMeetingState();
 
     // Reset Mouse Passthrough so the next meeting overlay starts fresh and focusable
@@ -2165,6 +2221,10 @@ export class AppState {
 
   public getWindowHelper(): WindowHelper {
     return this.windowHelper
+  }
+
+  public getAutopilot(): AutopilotOrchestrator | null {
+    return this.autopilot;
   }
 
   public getIntelligenceManager(): IntelligenceManager {

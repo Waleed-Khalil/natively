@@ -336,6 +336,13 @@ export interface ElectronAPI {
   profileGetNotes: () => Promise<{ success: boolean; content: string; error?: string }>
   profileSaveNotes: (content: string) => Promise<{ success: boolean; error?: string }>
 
+  // Autopilot
+  autopilotGet: () => Promise<{ enabled: boolean }>
+  autopilotSet: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>
+  autopilotKill: () => Promise<{ success: boolean }>
+  onAutopilotStatus: (callback: (status: 'idle' | 'pending' | 'generating') => void) => () => void
+  onAutopilotState: (callback: (state: { enabled: boolean }) => void) => () => void
+
   // Tavily Search API
   setTavilyApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
 

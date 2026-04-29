@@ -34,9 +34,11 @@ export class WhatToAnswerLLM {
             let contextParts: string[] = [];
 
             if (intentResult) {
+                const isTechnical = intentResult.intent === 'coding';
                 contextParts.push(`<intent_and_shape>
 DETECTED INTENT: ${intentResult.intent}
 ANSWER SHAPE: ${intentResult.answerShape}
+${isTechnical ? `\nCRITICAL: This is a PURE TECHNICAL question. ABSOLUTE RULES:\n- DO NOT mention resume, work history, past employers, or personal background\n- DO NOT say "based on your experience at X" or reference any company\n- Output ONLY code + brief spoken explanation. Nothing else.` : ''}
 </intent_and_shape>`);
             }
 
@@ -48,9 +50,12 @@ ANSWER SHAPE: ${intentResult.answerShape}
             }
 
             const extraContext = contextParts.join('\n\n');
-            const fullMessage = extraContext
+            const baseMessage = extraContext
                 ? `${extraContext}\n\nCONVERSATION:\n${cleanedTranscript}`
                 : cleanedTranscript;
+            const fullMessage = manualTrigger
+                ? `${PERSPECTIVE_LOCK}\n\n${baseMessage}`
+                : baseMessage;
 
             // Use Universal Prompt
             // Note: WhatToAnswer has a very specific prompt. 

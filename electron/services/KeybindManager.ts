@@ -31,6 +31,10 @@ export const DEFAULT_KEYBINDS: KeybindConfig[] = [
     { id: 'chat:scrollUp', label: 'Scroll Up', accelerator: 'CommandOrControl+Up', isGlobal: true, defaultAccelerator: 'CommandOrControl+Up' },
     { id: 'chat:scrollDown', label: 'Scroll Down', accelerator: 'CommandOrControl+Down', isGlobal: true, defaultAccelerator: 'CommandOrControl+Down' },
 
+    // Autopilot
+    { id: 'autopilot:toggle', label: 'Toggle Autopilot', accelerator: 'CommandOrControl+Shift+A', isGlobal: true, defaultAccelerator: 'CommandOrControl+Shift+A' },
+    { id: 'autopilot:kill', label: 'Autopilot Kill Switch', accelerator: 'CommandOrControl+Shift+K', isGlobal: true, defaultAccelerator: 'CommandOrControl+Shift+K' },
+
     // Window Movement - Global shortcuts (stealth window positioning)
     { id: 'window:move-up', label: 'Move Window Up', accelerator: 'CommandOrControl+Shift+Up', isGlobal: true, defaultAccelerator: 'CommandOrControl+Shift+Up' },
     { id: 'window:move-down', label: 'Move Window Down', accelerator: 'CommandOrControl+Shift+Down', isGlobal: true, defaultAccelerator: 'CommandOrControl+Shift+Down' },
@@ -60,6 +64,9 @@ export class KeybindManager {
     }
 
     private shouldRegister(actionId: string): boolean {
+        // Autopilot kill switch must always be live so the user can panic-stop
+        // it from anywhere, even before opening the overlay.
+        if (actionId === 'autopilot:kill' || actionId === 'autopilot:toggle') return true;
         if (this.activeMode === 'overlay') return true;
 
         // In launcher mode, register visibility + movement shortcuts
