@@ -22,14 +22,26 @@
 //     means Gemini drifting back to plain-text doesn't break the
 //     pipeline — it just loses the action signal.
 //
-// FOLLOW-UP (tracked, not blocking): LLMHelper.streamChat does not yet
-// accept an AbortController. On a 250ms timeout (or when a second
-// trigger supersedes the first), the underlying network call settles
-// in the background and is discarded. Cost-per-discarded-call is tiny
-// on Flash Lite, but back-to-back triggers on different questions
-// can race, with the wrong perspective potentially landing first.
-// Threading AbortController through streamChat's provider-specific
-// paths is the right fix; do it as its own change.
+// FOLLOW-UPS (tracked, not blocking):
+//
+//   1. AbortController. LLMHelper.streamChat does not yet accept one. On a
+//      250ms timeout (or when a second trigger supersedes the first), the
+//      underlying network call settles in the background and is discarded.
+//      Cost-per-discarded-call is tiny on Flash Lite, but back-to-back
+//      triggers on different questions can race, with the wrong perspective
+//      potentially landing first. Threading AbortController through
+//      streamChat's provider-specific paths is the right fix.
+//
+//   2. Decouple perspective from the user's default LLM. Today the
+//      perspective call goes through LLMHelper.streamChat, which routes
+//      to whichever model the user picked (often Pro on premium tiers).
+//      Perspective is a 2-3 sentence inference task — Flash Lite is the
+//      right tool. When the user's default is rate-limited (which we've
+//      observed empirically — Pro 429s, Flash 503s same hour), perspective
+//      goes down with it instead of failing over to a faster cheaper
+//      provider. Pin perspective to Flash Lite directly, or build a tiny
+//      "fastest-available" picker that prefers Flash > Flash Lite > Groq
+//      regardless of user setting. Higher priority than initially scoped.
 
 import { LLMHelper } from '../LLMHelper';
 import { InterviewerModel } from '../services/InterviewerModelBuilder';

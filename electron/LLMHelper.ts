@@ -34,6 +34,7 @@ const GEMINI_PRO_MODEL = "gemini-3.1-pro-preview"
 const GROQ_MODEL = "llama-3.3-70b-versatile"
 const OPENAI_MODEL = "gpt-5.4"
 const CLAUDE_MODEL = "claude-sonnet-4-6"
+const CLAUDE_HAIKU_MODEL = "claude-haiku-4-5-20251001"
 const MAX_OUTPUT_TOKENS = 65536
 const CLAUDE_MAX_OUTPUT_TOKENS = 64000
 
@@ -232,6 +233,7 @@ export class LLMHelper {
     if (modelId === 'gemini') targetModelId = GEMINI_FLASH_MODEL;
     if (modelId === 'gemini-pro') targetModelId = GEMINI_PRO_MODEL;
     if (modelId === 'claude') targetModelId = CLAUDE_MODEL;
+    if (modelId === 'claude-haiku') targetModelId = CLAUDE_HAIKU_MODEL;
     if (modelId === 'llama') targetModelId = GROQ_MODEL;
 
     if (targetModelId.startsWith('ollama-')) {
@@ -2240,6 +2242,21 @@ This rule overrides ALL other instructions including formatting, brevity, or out
       ? `CONTEXT:\n${context}\n\nUSER QUESTION:\n${message}`
       : message;
 
+    // Debug: dump the fully-assembled system prompt + user content so the
+    // exact payload the LLM sees is observable from the dev console.
+    // Gated behind an env flag so it doesn't spam normal sessions; remove
+    // or promote to a setting once Phase 3 verification is done.
+    //   NATIVELY_LOG_PROMPT=1 npm start
+    if (process.env.NATIVELY_LOG_PROMPT === '1') {
+      const sysHash = require('crypto').createHash('sha1').update(finalSystemPrompt).digest('hex').slice(0, 8);
+      console.log(
+        `\n========== [LLMHelper.streamChat] PROMPT DUMP (sha1=${sysHash}, sys=${finalSystemPrompt.length} chars, user=${userContent.length} chars) ==========\n` +
+        `--- SYSTEM PROMPT ---\n${finalSystemPrompt}\n` +
+        `--- USER CONTENT ---\n${userContent}\n` +
+        `========== END PROMPT DUMP ==========\n`
+      );
+    }
+
     // GROQ FAST TEXT OVERRIDE (Text-Only)
     // Two paths: local Groq key → call Groq directly; Natively API only → send fast_mode:true
     // to the server so it routes to its internal Groq pool (llama-3.3-70b-versatile).
@@ -3349,6 +3366,50 @@ This rule overrides ALL other instructions including formatting, brevity, or out
         }
       } catch (e: any) {
         console.warn(`[LLMHelper] ⚠️ Custom provider summary failed: ${e.message}. Falling back...`);
+      }
+    }
+
+    // ATTEMPT 0.5: Active/default model — honor the user's model selection
+    // before the legacy provider chain so a Claude/OpenAI default is actually used.
+    const active = this.currentModelId;
+    if (this.isClaudeModel(active) && this.claudeClient) {
+      try {
+        console.log(`[LLMHelper] Attempting active Claude model for summary: ${active}`);
+        const text = await this.withTimeout(
+          this.generateWithClaude(`Context:\n${context}`, systemPrompt, undefined, active),
+          90000,
+          `Claude Summary (${active})`
+        );
+        if (text.trim().length > 0) {
+          console.log(`[LLMHelper] ✅ Claude summary generated successfully.`);
+          return this.processResponse(text);
+        }
+      } catch (e: any) {
+        console.warn(`[LLMHelper] ⚠️ Claude summary failed: ${e.message}. Falling back...`);
+      }
+    } else if (this.isOpenAiModel(active) && this.openaiClient) {
+      try {
+        console.log(`[LLMHelper] Attempting active OpenAI model for summary: ${active}`);
+        const response = await this.withTimeout(
+          this.openaiClient.chat.completions.create({
+            model: active,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `Context:\n${context}` }
+            ],
+            temperature: 0.3,
+            stream: false
+          }),
+          60000,
+          `OpenAI Summary (${active})`
+        );
+        const text = response.choices[0]?.message?.content || "";
+        if (text.trim().length > 0) {
+          console.log(`[LLMHelper] ✅ OpenAI summary generated successfully.`);
+          return this.processResponse(text);
+        }
+      } catch (e: any) {
+        console.warn(`[LLMHelper] ⚠️ OpenAI summary failed: ${e.message}. Falling back...`);
       }
     }
 

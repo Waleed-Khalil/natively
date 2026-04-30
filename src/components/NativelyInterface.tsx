@@ -2373,6 +2373,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
                                                     if (m === 'llama-3.3-70b-versatile') return 'Groq Llama 3.3';
                                                     if (m === 'gpt-5.4') return 'GPT 5.4';
                                                     if (m === 'claude-sonnet-4-6') return 'Sonnet 4.6';
+                                                    if (m === 'claude-haiku-4-5-20251001') return 'Haiku 4.5';
                                                     return m;
                                                 })()}
                                             </span>

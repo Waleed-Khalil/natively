@@ -11,24 +11,41 @@
 
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 
 function resolveUserDataPath() {
-    // Mirror Electron's app.getPath('userData') resolution. The product name
-    // comes from package.json's `build.productName`. If that ever changes,
-    // update here too — there's no clean cross-context way to read it.
-    const productName = 'Natively';
+    // Mirror Electron's app.getPath('userData') resolution. The directory
+    // name differs between dev and production: dev-mode Electron uses
+    // package.json's `name` field ("natively", lowercase), packaged builds
+    // use `build.productName` ("Natively"). On macOS APFS this is usually
+    // case-insensitive so both resolve to the same directory, but Linux
+    // and case-sensitive APFS do distinguish — so probe both candidates
+    // and prefer whichever has an existing natively.db. Fall back to the
+    // production-style name when nothing exists yet.
     const platform = process.platform;
     const home = os.homedir();
-    if (platform === 'darwin') {
-        return path.join(home, 'Library', 'Application Support', productName);
+
+    const baseFor = (name) => {
+        if (platform === 'darwin') {
+            return path.join(home, 'Library', 'Application Support', name);
+        }
+        if (platform === 'win32') {
+            const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+            return path.join(appData, name);
+        }
+        const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
+        return path.join(xdgConfig, name);
+    };
+
+    for (const name of ['natively', 'Natively']) {
+        const candidate = baseFor(name);
+        try {
+            if (fs.existsSync(path.join(candidate, 'natively.db'))) {
+                return candidate;
+            }
+        } catch { /* ignore and try next */ }
     }
-    if (platform === 'win32') {
-        const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-        return path.join(appData, productName);
-    }
-    // Linux / *nix
-    const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
-    return path.join(xdgConfig, productName);
+    return baseFor('Natively');
 }
 
 const electronMock = {

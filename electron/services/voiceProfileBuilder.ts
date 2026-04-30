@@ -150,12 +150,32 @@ export function redactExcerpt(text: string, companyAllowList: string[]): string 
     const properNounPattern = /\b(?:[A-Z][A-Za-z0-9]+(?:[-/&]?\s+[A-Z][A-Za-z0-9]+){0,3}|[A-Z][a-z]+[A-Z][A-Za-z0-9]+|[A-Z]{2,}[A-Za-z0-9]*)\b/g;
     const allowSet = new Set(companyAllowList.map(s => s.toLowerCase()));
     // Common stop tokens that the proper-noun pattern catches but aren't PII.
+    // Sentence-starting auxiliaries / pronouns / acknowledgements are the
+    // primary false-positive class — they're capitalised at sentence start
+    // and the regex doesn't know they aren't proper nouns. Without these
+    // entries, excerpts come out riddled with [REDACTED-COMPANY] placeholders
+    // hiding ordinary words like "Are", "But", "Then" — which strips the
+    // few-shot examples of concrete signal without protecting any PII.
     const stopList = new Set([
-        'I', 'A', 'An', 'The', 'My', 'Our', 'Their', 'His', 'Her',
-        'So', 'Yes', 'No', 'Well', 'Yeah', 'OK', 'Okay',
+        // Articles + possessive determiners
+        'I', 'A', 'An', 'The', 'My', 'Our', 'Their', 'His', 'Her', 'Its', 'Your',
+        // Modal / auxiliary verbs (sentence-starting "Are you...", "Have you...", etc.)
+        'Are', 'Is', 'Was', 'Were', 'Do', 'Does', 'Did', 'Have', 'Has', 'Had',
+        'Will', 'Would', 'Should', 'Could', 'Can', 'Might', 'May', 'Must', 'Shall',
+        // Common conjunctions / discourse markers at sentence start
+        'But', 'And', 'So', 'Or', 'Then', 'Now', 'Sure', 'Well', 'Look', 'Listen',
+        'Honestly', 'Actually', 'Basically', 'Literally', 'Really', 'Maybe', 'Perhaps',
+        // Acknowledgements (capitalised at sentence start)
+        'Yes', 'No', 'Yeah', 'OK', 'Okay', 'Right', 'Cool', 'Great', 'Nice',
+        // Pronouns at sentence start
+        'He', 'She', 'They', 'We', 'You', 'It', 'This', 'That', 'These', 'Those',
+        'There', 'Here', 'What', 'When', 'Where', 'Why', 'How', 'Which', 'Who',
+        // Days + months — calendar mentions are rarely proper-noun-redact-worthy
         'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
-        'January', 'February', 'March', 'April', 'May', 'June',
+        'January', 'February', 'March', 'April', 'June',
         'July', 'August', 'September', 'October', 'November', 'December',
+        // 'May' is intentionally listed once via the modal-verb section above
+        // so the de-duplication is explicit.
     ]);
 
     // String.split with a capturing group puts the captured matches at odd

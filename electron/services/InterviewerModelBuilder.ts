@@ -50,8 +50,86 @@ const ACKNOWLEDGEMENTS = new Set([
     'nice', 'perfect', 'alright',
 ]);
 
-const SUBSTANTIVE_THRESHOLD_WORDS = 150;
-const UPDATE_DEBOUNCE_MS = 60_000;
+// ─── Update thresholds ────────────────────────────────────────────
+//
+// Two thresholds, deliberately split. The first update fires early to prime
+// the model during the interviewer-dominated opening of an interview (intro,
+// role context, what they're looking for). Subsequent updates wait for
+// substantial new content to avoid burning calls on incremental signal.
+//
+// Empirical from a 3-minute real meeting segment: a roughly 50/50 speaking-
+// time conversation produces ~70 substantive interviewer words. The original
+// uniform 150 was set on a guess and turned out to gate out the first update
+// entirely on short / front-loaded interviews — fixing that is exactly what
+// the asymmetric threshold solves.
+//
+// Each value is overridable via env var so test sessions can dial these
+// tighter without recompiling — useful when you want a perspective fire
+// inside the first 30 seconds of speech instead of the first 5 minutes.
+//
+//   NATIVELY_PHASE3_FIRST_THRESHOLD   default 50
+//   NATIVELY_PHASE3_THRESHOLD         default 150
+//   NATIVELY_PHASE3_DEBOUNCE_MS       default 60_000
+//
+// Default values are exported as DEFAULT_* so tests can pin the threshold
+// logic against known constants regardless of the runtime override.
+export const DEFAULT_FIRST_UPDATE_THRESHOLD_WORDS = 50;
+export const DEFAULT_SUBSEQUENT_UPDATE_THRESHOLD_WORDS = 150;
+export const DEFAULT_UPDATE_DEBOUNCE_MS = 60_000;
+
+function envInt(name: string, fallback: number): number {
+    const v = process.env[name];
+    if (!v) return fallback;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+const FIRST_UPDATE_THRESHOLD_WORDS = envInt(
+    'NATIVELY_PHASE3_FIRST_THRESHOLD',
+    DEFAULT_FIRST_UPDATE_THRESHOLD_WORDS,
+);
+const SUBSEQUENT_UPDATE_THRESHOLD_WORDS = envInt(
+    'NATIVELY_PHASE3_THRESHOLD',
+    DEFAULT_SUBSEQUENT_UPDATE_THRESHOLD_WORDS,
+);
+const UPDATE_DEBOUNCE_MS = envInt(
+    'NATIVELY_PHASE3_DEBOUNCE_MS',
+    DEFAULT_UPDATE_DEBOUNCE_MS,
+);
+
+/**
+ * Pure function that decides whether a model update should fire right now,
+ * given the current builder state. Exported so the dual-threshold logic
+ * has a flat surface for unit tests — the load-bearing pieces are which
+ * threshold gets picked (first vs. subsequent) and how the debounce is
+ * skipped on the first update.
+ *
+ * Defaults to the resolved (post-env-override) thresholds, but every
+ * threshold is overridable per call so tests can pin against known values.
+ */
+export function shouldScheduleUpdate(args: {
+    updateInFlight: boolean;
+    pendingSubstantiveWords: number;
+    modelVersion: number;
+    lastUpdateAt: number;
+    now: number;
+    firstThreshold?: number;
+    subsequentThreshold?: number;
+    debounceMs?: number;
+}): boolean {
+    if (args.updateInFlight) return false;
+    const threshold = args.modelVersion === 0
+        ? (args.firstThreshold ?? FIRST_UPDATE_THRESHOLD_WORDS)
+        : (args.subsequentThreshold ?? SUBSEQUENT_UPDATE_THRESHOLD_WORDS);
+    if (args.pendingSubstantiveWords < threshold) return false;
+    // First-update debounce skip: lastUpdateAt === 0 means "never updated",
+    // so don't gate the warm-up on a timer the user can't observe.
+    if (args.lastUpdateAt > 0) {
+        const debounce = args.debounceMs ?? UPDATE_DEBOUNCE_MS;
+        if (args.now - args.lastUpdateAt < debounce) return false;
+    }
+    return true;
+}
 
 /**
  * Count words in text that aren't fillers or acknowledgements. Pure
@@ -219,13 +297,13 @@ export class InterviewerModelBuilder {
     }
 
     private shouldScheduleUpdate(): boolean {
-        if (this.updateInFlight) return false;
-        if (this.pendingSubstantiveWords < SUBSTANTIVE_THRESHOLD_WORDS) return false;
-        // Debounce: only one update per UPDATE_DEBOUNCE_MS window. Buffer
-        // continues to accumulate during the debounce; the next update picks
-        // up everything since the last one ran.
-        if (Date.now() - this.lastUpdateAt < UPDATE_DEBOUNCE_MS) return false;
-        return true;
+        return shouldScheduleUpdate({
+            updateInFlight: this.updateInFlight,
+            pendingSubstantiveWords: this.pendingSubstantiveWords,
+            modelVersion: this.modelVersion,
+            lastUpdateAt: this.lastUpdateAt,
+            now: Date.now(),
+        });
     }
 
     private async runUpdate(): Promise<void> {
