@@ -138,6 +138,14 @@ export function redactExcerpt(text: string, companyAllowList: string[]): string 
         out = out.replace(pattern, replacement);
     }
 
+    // Split on existing [REDACTED-*] markers (both ones we just inserted from
+    // the PII pass and any that were already in the input). The proper-noun
+    // pass below would otherwise match the all-caps token names ("REDACTED",
+    // "PHONE", etc.) and rewrite the markers into nested garbage like
+    // "[[REDACTED-COMPANY]-[REDACTED-COMPANY]]".
+    const markerPattern = /(\[REDACTED-[A-Z]+\])/g;
+    const parts = out.split(markerPattern);
+
     // Title-Case proper-noun runs (same shape as SessionTracker's anchor pattern)
     const properNounPattern = /\b(?:[A-Z][A-Za-z0-9]+(?:[-/&]?\s+[A-Z][A-Za-z0-9]+){0,3}|[A-Z][a-z]+[A-Z][A-Za-z0-9]+|[A-Z]{2,}[A-Za-z0-9]*)\b/g;
     const allowSet = new Set(companyAllowList.map(s => s.toLowerCase()));
@@ -150,14 +158,41 @@ export function redactExcerpt(text: string, companyAllowList: string[]): string 
         'July', 'August', 'September', 'October', 'November', 'December',
     ]);
 
-    out = out.replace(properNounPattern, (match) => {
-        const trimmed = match.trim();
-        if (stopList.has(trimmed)) return match;
-        if (allowSet.has(trimmed.toLowerCase())) return match;
-        return '[REDACTED-COMPANY]';
-    });
+    // String.split with a capturing group puts the captured matches at odd
+    // indices; even indices are the text between markers. Apply proper-noun
+    // redaction only to the even (non-marker) slices so markers pass through
+    // untouched.
+    for (let i = 0; i < parts.length; i++) {
+        if (i % 2 !== 0) continue;
+        parts[i] = parts[i].replace(properNounPattern, (match) => {
+            const trimmed = match.trim();
 
-    return out;
+            // Whole-match allow entries like "Independence Blue Cross"
+            // take priority — preserve the full multi-word span as-is.
+            if (allowSet.has(trimmed.toLowerCase())) return match;
+
+            // Single-token match: simple stopList check, else redact.
+            if (!/\s/.test(trimmed)) {
+                if (stopList.has(trimmed)) return match;
+                return '[REDACTED-COMPANY]';
+            }
+
+            // Multi-word match: the regex greedily glues a leading stop word
+            // (e.g. "At" → "At NxtHumans") onto a real proper noun. Decide
+            // per-token so allow-listed sub-spans survive but unlisted ones
+            // get redacted independently. Separator-preserving split keeps
+            // the original spacing intact.
+            const tokens = trimmed.split(/(\s+)/);
+            return tokens.map((tok, idx) => {
+                if (idx % 2 !== 0) return tok; // separator
+                if (stopList.has(tok)) return tok;
+                if (allowSet.has(tok.toLowerCase())) return tok;
+                return '[REDACTED-COMPANY]';
+            }).join('');
+        });
+    }
+
+    return parts.join('');
 }
 
 function countWords(text: string): number {
