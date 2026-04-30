@@ -279,6 +279,49 @@ Return ONLY valid JSON (no markdown code blocks):
     }
 
     /**
+     * Returns the candidate's own (user-channel) transcript segments across
+     * recently-saved meetings, in chronological order. The voice-profile
+     * builder consumes this — keeping the schema-coupling here (rather than
+     * in the script) means a transcripts-table migration only has to update
+     * one consumer, not two.
+     *
+     * Static on purpose: the CLI builder script invokes this without an
+     * IntelligenceEngine / SessionTracker available. Other meeting-lifecycle
+     * methods in this class need session state; this query does not.
+     *
+     * Cheap by design: walks `getMeetingDetails` for each meeting in the
+     * limited list, filters to user segments, and appends. For a typical
+     * profile build (last ~30 meetings) this stays under a second.
+     */
+    public static getUserTranscriptCorpus(opts: {
+        meetingLimit?: number;
+        minSegmentLength?: number;
+    } = {}): { sampleCount: number; segments: Array<{ text: string; timestamp: number }> } {
+        const meetingLimit = opts.meetingLimit ?? 50;
+        const minSegmentLength = opts.minSegmentLength ?? 12;
+
+        const db = DatabaseManager.getInstance();
+        const meetings = db.getRecentMeetings(meetingLimit);
+
+        const segments: Array<{ text: string; timestamp: number }> = [];
+        let sampleCount = 0;
+
+        for (const m of meetings) {
+            const details = db.getMeetingDetails(m.id);
+            if (!details || !details.transcript || details.transcript.length === 0) continue;
+            sampleCount++;
+            for (const seg of details.transcript) {
+                if (seg.speaker !== 'user') continue;
+                const text = (seg.text || '').trim();
+                if (text.length < minSegmentLength) continue;
+                segments.push({ text, timestamp: seg.timestamp });
+            }
+        }
+
+        return { sampleCount, segments };
+    }
+
+    /**
      * Recover meetings that were started but not fully processed (e.g. app crash)
      */
     public async recoverUnprocessedMeetings(): Promise<void> {

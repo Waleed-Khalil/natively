@@ -19,7 +19,10 @@
     "watch": "tsc -p electron/tsconfig.json --watch",
     "start": "npm run app:dev",
     "dist": "npm run app:build",
-    "build:native": "node scripts/build-native.js"
+    "build:native": "node scripts/build-native.js",
+    "voice-profile:build": "npm run build:electron:tsc && node scripts/voice-profile/build.js",
+    "voice-profile:inspect": "npm run build:electron:tsc && node scripts/voice-profile/inspect.js",
+    "test:voice-profile": "node --test test/voice-profile/*.test.js"
   },
   "build": {
     "generateUpdatesFilesForAllChannels": true,

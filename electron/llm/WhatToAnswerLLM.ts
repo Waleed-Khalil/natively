@@ -3,6 +3,7 @@ import { UNIVERSAL_WHAT_TO_ANSWER_PROMPT, PERSPECTIVE_LOCK } from "./prompts";
 import { TemporalContext } from "./TemporalContextBuilder";
 import { IntentResult } from "./IntentClassifier";
 import type { ConversationRegister } from "../SessionTracker";
+import { CandidateVoiceProfile } from "../services/CandidateVoiceProfile";
 
 export class WhatToAnswerLLM {
     private llmHelper: LLMHelper;
@@ -85,6 +86,16 @@ ${isTechnical ? `\nCRITICAL: This is a PURE TECHNICAL question. ABSOLUTE RULES:\
                         `DO NOT reuse anchors, projects, or metrics from above. Vary openers — pick one not in the recent list.`
                     );
                 }
+            }
+
+            // Candidate voice anchor: few-shot of the user's actual speech, built
+            // from saved transcripts via scripts/voice-profile/build.js. Empty
+            // string when no profile exists, so this is a no-op for users who
+            // haven't run the builder yet. Placed last so the few-shot examples
+            // sit closest to the conversation in the assembled prompt.
+            const voiceAnchor = CandidateVoiceProfile.getInstance().buildAnchorBlock();
+            if (voiceAnchor) {
+                contextParts.push(voiceAnchor);
             }
 
             const extraContext = contextParts.join('\n\n');
