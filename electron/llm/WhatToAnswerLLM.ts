@@ -2,6 +2,7 @@ import { LLMHelper } from "../LLMHelper";
 import { UNIVERSAL_WHAT_TO_ANSWER_PROMPT, PERSPECTIVE_LOCK } from "./prompts";
 import { TemporalContext } from "./TemporalContextBuilder";
 import { IntentResult } from "./IntentClassifier";
+import { CandidateVoiceProfile } from "../services/CandidateVoiceProfile";
 
 export class WhatToAnswerLLM {
     private llmHelper: LLMHelper;
@@ -47,6 +48,15 @@ ${isTechnical ? `\nCRITICAL: This is a PURE TECHNICAL question. ABSOLUTE RULES:\
                 // Just dump it in context if possible
                 const history = temporalContext.previousResponses.map((r, i) => `${i + 1}. "${r}"`).join('\n');
                 contextParts.push(`PREVIOUS RESPONSES (Avoid Repetition):\n${history}`);
+            }
+
+            // Candidate voice anchor: few-shot of the user's actual speech, built
+            // from saved transcripts via scripts/voice-profile/build.js. Empty
+            // string when no profile exists, so this is a no-op for users who
+            // haven't run the builder yet.
+            const voiceAnchor = CandidateVoiceProfile.getInstance().buildAnchorBlock();
+            if (voiceAnchor) {
+                contextParts.push(voiceAnchor);
             }
 
             const extraContext = contextParts.join('\n\n');

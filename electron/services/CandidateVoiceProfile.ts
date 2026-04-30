@@ -19,6 +19,7 @@ import {
     CorpusSegment,
     BuildOptions,
 } from './voiceProfileBuilder';
+import { formatCandidateVoiceAnchor } from '../llm/prompts';
 
 export const VOICE_PROFILE_FILENAME = 'voice_profile.json';
 
@@ -100,6 +101,24 @@ export class CandidateVoiceProfile {
     public getProfile(): VoiceProfile | null {
         if (!this.loaded) this.load();
         return this.profile;
+    }
+
+    /**
+     * Build the prompt block injected into WhatToAnswerLLM. Empty string
+     * when no profile exists so the caller can unconditionally push the
+     * result onto contextParts. The wording itself lives in
+     * `formatCandidateVoiceAnchor` in prompts.ts — this method is just glue.
+     */
+    public buildAnchorBlock(): string {
+        const profile = this.getProfile();
+        if (!profile) return '';
+        return formatCandidateVoiceAnchor({
+            excerpts: profile.excerpts,
+            avgSentenceLength: profile.avgSentenceLength,
+            topFillers: profile.topFillers,
+            commonOpeners: profile.commonOpeners,
+            bannedPhrases: profile.bannedPhrases,
+        });
     }
 
     /**

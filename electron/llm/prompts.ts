@@ -2116,6 +2116,65 @@ UNCLEAR INTENT:
   - Provide a brief specific guess: "My guess is that you might want…"`;
 
 // ==========================================
+// CANDIDATE VOICE ANCHOR (Few-shot of the candidate's own speech)
+// ==========================================
+/**
+ * Activated only when CandidateVoiceProfile.hasProfile() is true. Built from
+ * the candidate's own user-channel transcripts via scripts/voice-profile/build.js.
+ *
+ * Loose primitive arguments rather than VoiceProfile type so this module
+ * keeps zero coupling into the services/ layer.
+ *
+ * Tuning notes (the wording is the highest-risk part of voice-profile —
+ * iterate here, not at the call site):
+ *  - "EXAMPLES" comes first because the model imitates structure-of-recent-tokens
+ *    more reliably than it follows abstract rules.
+ *  - PATTERNS section frames numerics (avg sentence length, fillers) so they read
+ *    as observations, not commands. Models over-weight imperative phrasing and
+ *    will mechanically mimic a stated pattern past where it's natural.
+ *  - The "DO NOT use" line lists a small banned vocabulary plus em-dashes
+ *    explicitly. The em-dash mention is intentional even though the banned list
+ *    might already include it — em-dashes are the single highest-signal AI tell
+ *    we've seen and bear repeating.
+ */
+export function formatCandidateVoiceAnchor(args: {
+    excerpts: string[];
+    avgSentenceLength: number;
+    topFillers: string[];
+    commonOpeners: string[];
+    bannedPhrases: string[];
+}): string {
+    if (args.excerpts.length === 0) return '';
+
+    const excerpts = args.excerpts.map(e => `"${e}"`).join('\n');
+    const fillers = args.topFillers.length > 0
+        ? args.topFillers.map(f => `"${f}"`).join(', ')
+        : '(none observed)';
+    const openers = args.commonOpeners.length > 0
+        ? args.commonOpeners.map(o => `"${o}"`).join(', ')
+        : '(none observed)';
+    const banned = args.bannedPhrases.length > 0
+        ? args.bannedPhrases.map(b => `"${b}"`).join(', ')
+        : '(none specified)';
+
+    return [
+        `<candidate_voice_anchor>`,
+        `The candidate speaks in this exact rhythm. Match it.`,
+        ``,
+        `EXAMPLES OF THE CANDIDATE'S ACTUAL SPEECH:`,
+        excerpts,
+        ``,
+        `PATTERNS observed in the candidate's recent meetings:`,
+        `- Average sentence length: ~${args.avgSentenceLength.toFixed(1)} words`,
+        `- Filler words used naturally: ${fillers}`,
+        `- Common openers: ${openers}`,
+        ``,
+        `DO NOT use: ${banned}, em dashes`,
+        `</candidate_voice_anchor>`,
+    ].join('\n');
+}
+
+// ==========================================
 // MEETING CONTEXT LAYER (Live, session-scoped project context)
 // ==========================================
 /**
