@@ -755,22 +755,17 @@ ANSWER DIRECTLY:`;
     try {
       if (this.useOllama) {
         return await this.callOllama(systemPrompt);
-      } else if (this.customProvider || this.activeCurlProvider) {
-        // Pass basePrompt (pre-language-injection) as systemPromptOverride so streamChat
-        // calls injectLanguageInstruction exactly once. lastQuestion is the clean user message.
-        // enrichedContext carries the mode reference files + custom context.
-        // ignoreKnowledgeMode=true: this is a live suggestion, not a knowledge/profile query.
-        let fullResponse = '';
-        for await (const chunk of this.streamChat(lastQuestion, undefined, enrichedContext, basePrompt, true)) {
-          fullResponse += chunk;
-        }
-        return this.processResponse(fullResponse);
-      } else if (this.client) {
-        const text = await this.generateWithFlash([{ text: systemPrompt }]);
-        return this.processResponse(text);
-      } else {
-        throw new Error("No LLM provider configured");
       }
+      // Route through streamChat so the active model is honored strictly.
+      // Pass basePrompt (pre-language-injection) as systemPromptOverride so streamChat
+      // calls injectLanguageInstruction exactly once. lastQuestion is the clean user message.
+      // enrichedContext carries the mode reference files + custom context.
+      // ignoreKnowledgeMode=true: this is a live suggestion, not a knowledge/profile query.
+      let fullResponse = '';
+      for await (const chunk of this.streamChat(lastQuestion, undefined, enrichedContext, basePrompt, true)) {
+        fullResponse += chunk;
+      }
+      return this.processResponse(fullResponse);
     } catch (error) {
       throw error;
     }
@@ -961,141 +956,50 @@ This rule overrides ALL other instructions including formatting, brevity, or out
         return this.processResponse(response);
       }
 
-      // --- Direct Routing based on Selected Model ---
+      // --- STRICT Direct Routing based on Selected Model ---
+      // The active model is the only model used. No silent fallback to other
+      // providers — if the active provider fails, the error surfaces.
       if (this.currentModelId === 'natively') {
         const { CredentialsManager } = require('./services/CredentialsManager');
         const nativelyKey = CredentialsManager.getInstance().getNativelyApiKey();
-        if (nativelyKey) {
-          try {
-            return await this.generateWithNatively(userContent, openaiSystemPrompt, imagePaths);
-          } catch (err: any) {
-            console.warn('[LLMHelper] Natively API failed in chatWithGemini, falling back to Gemini:', err.message);
-            // Fall through to smart dynamic fallback below
-          }
+        if (!nativelyKey) {
+          throw new Error("Natively is the active model but no Natively API key is configured. Add a key in Settings or change the active model.");
         }
-        // No key or call failed — fall through to default routing
+        const raw = await this.generateWithNatively(userContent, openaiSystemPrompt, imagePaths);
+        return this.processResponse(raw);
       }
-      if (this.isOpenAiModel(this.currentModelId) && this.openaiClient) {
-        return await this.generateWithOpenai(userContent, openaiSystemPrompt, imagePaths);
+      if (this.isOpenAiModel(this.currentModelId)) {
+        if (!this.openaiClient) {
+          throw new Error(`OpenAI is the active model (${this.currentModelId}) but no OpenAI API key is configured.`);
+        }
+        const raw = await this.generateWithOpenai(userContent, openaiSystemPrompt, imagePaths);
+        return this.processResponse(raw);
       }
-      if (this.isClaudeModel(this.currentModelId) && this.claudeClient) {
-        return await this.generateWithClaude(userContent, claudeSystemPrompt, imagePaths);
+      if (this.isClaudeModel(this.currentModelId)) {
+        if (!this.claudeClient) {
+          throw new Error(`Claude is the active model (${this.currentModelId}) but no Anthropic API key is configured.`);
+        }
+        const raw = await this.generateWithClaude(userContent, claudeSystemPrompt, imagePaths);
+        return this.processResponse(raw);
       }
-      if (this.isGroqModel(this.currentModelId) && this.groqClient) {
-        if (isMultimodal && imagePaths) {
-          return await this.generateWithGroqMultimodal(userContent, imagePaths, openaiSystemPrompt);
+      if (this.isGroqModel(this.currentModelId)) {
+        if (!this.groqClient) {
+          throw new Error(`Groq is the active model (${this.currentModelId}) but no Groq API key is configured.`);
         }
-        return await this.generateWithGroq(combinedMessages.groq, this.currentModelId);
+        const raw = (isMultimodal && imagePaths)
+          ? await this.generateWithGroqMultimodal(userContent, imagePaths, openaiSystemPrompt)
+          : await this.generateWithGroq(combinedMessages.groq, this.currentModelId);
+        return this.processResponse(raw);
       }
-
-      // Fallback (Gemini) - logic handled below by SMART DYNAMIC FALLBACK list
-
-      // ============================================================
-      // SMART DYNAMIC FALLBACK (Non-Streaming)
-      // Multimodal: Gemini Flash → OpenAI → Claude → Gemini Pro (Groq excluded)
-      // Text-only:  Gemini Flash → Gemini Pro → Groq → OpenAI → Claude
-      // OpenAI/Claude use proper system+user message separation
-      // ============================================================
-      type ProviderAttempt = { name: string; execute: () => Promise<string> };
-      const providers: ProviderAttempt[] = [];
-
-      // Get auto-discovered text model IDs from ModelVersionManager
-      const textOpenAI = this.modelVersionManager.getTextTieredModels(TextModelFamily.OPENAI).tier1;
-      const textGeminiFlash = this.modelVersionManager.getTextTieredModels(TextModelFamily.GEMINI_FLASH).tier1;
-      const textGeminiPro = this.modelVersionManager.getTextTieredModels(TextModelFamily.GEMINI_PRO).tier1;
-      const textClaude = this.modelVersionManager.getTextTieredModels(TextModelFamily.CLAUDE).tier1;
-      const textGroq = this.modelVersionManager.getTextTieredModels(TextModelFamily.GROQ).tier1;
-
-      if (isMultimodal) {
-        // MULTIMODAL PROVIDER ORDER: [Natively] -> OpenAI -> Gemini Flash -> Claude -> Gemini Pro -> Groq -> Custom/Ollama
-        if (this.hasNatively()) {
-          providers.push({ name: 'Natively API', execute: () => this.generateWithNatively(userContent, openaiSystemPrompt, imagePaths) });
+      if (this.isGeminiModel(this.currentModelId)) {
+        if (!this.client) {
+          throw new Error(`Gemini is the active model (${this.currentModelId}) but no Gemini API key is configured.`);
         }
-        if (this.openaiClient) {
-          providers.push({ name: `OpenAI (${textOpenAI})`, execute: () => this.generateWithOpenai(userContent, openaiSystemPrompt, imagePaths, textOpenAI) });
-        }
-        if (this.client) {
-          providers.push({
-            name: `Gemini Flash (${textGeminiFlash})`,
-            execute: () => this.tryGenerateResponse(combinedMessages.gemini, imagePaths, textGeminiFlash)
-          });
-        }
-        if (this.claudeClient) {
-          providers.push({ name: `Claude (${textClaude})`, execute: () => this.generateWithClaude(userContent, claudeSystemPrompt, imagePaths, textClaude) });
-        }
-        if (this.client) {
-          providers.push({
-            name: `Gemini Pro (${textGeminiPro})`,
-            execute: () => this.tryGenerateResponse(combinedMessages.gemini, imagePaths, textGeminiPro)
-          });
-        }
-        if (this.groqClient) {
-          providers.push({
-            name: `Groq (meta-llama/llama-4-scout-17b-16e-instruct)`,
-            execute: () => this.generateWithGroqMultimodal(userContent, imagePaths!, openaiSystemPrompt)
-          });
-        }
-      } else {
-        // TEXT-ONLY: [Natively] -> Groq -> Gemini Flash -> Gemini Pro -> OpenAI -> Claude
-        if (this.hasNatively()) {
-          providers.push({ name: 'Natively API', execute: () => this.generateWithNatively(userContent, openaiSystemPrompt) });
-        }
-        if (this.groqClient) {
-          providers.push({ name: `Groq (${textGroq})`, execute: () => this.generateWithGroq(combinedMessages.groq, textGroq) });
-        }
-        if (this.client) {
-          providers.push({
-            name: `Gemini Flash (${textGeminiFlash})`,
-            execute: () => this.tryGenerateResponse(combinedMessages.gemini, undefined, textGeminiFlash)
-          });
-          providers.push({
-            name: `Gemini Pro (${textGeminiPro})`,
-            execute: () => this.tryGenerateResponse(combinedMessages.gemini, undefined, textGeminiPro)
-          });
-        }
-        if (this.openaiClient) {
-          providers.push({ name: `OpenAI (${textOpenAI})`, execute: () => this.generateWithOpenai(userContent, openaiSystemPrompt, undefined, textOpenAI) });
-        }
-        if (this.claudeClient) {
-          providers.push({ name: `Claude (${textClaude})`, execute: () => this.generateWithClaude(userContent, claudeSystemPrompt, undefined, textClaude) });
-        }
+        const raw = await this.tryGenerateResponse(combinedMessages.gemini, imagePaths, this.currentModelId);
+        return this.processResponse(raw);
       }
 
-      if (providers.length === 0) {
-        return "No AI providers configured. Please add at least one API key in Settings.";
-      }
-
-      // ============================================================
-      // RELENTLESS RETRY: Try all providers, then retry entire chain
-      // with exponential backoff. Max 2 full rotations.
-      // ============================================================
-      const MAX_FULL_ROTATIONS = 3;
-
-      for (let rotation = 0; rotation < MAX_FULL_ROTATIONS; rotation++) {
-        if (rotation > 0) {
-          const backoffMs = 1000 * rotation;
-          console.log(`[LLMHelper] 🔄 Non-streaming rotation ${rotation + 1}/${MAX_FULL_ROTATIONS} after ${backoffMs}ms backoff...`);
-          await this.delay(backoffMs);
-        }
-
-        for (const provider of providers) {
-          try {
-            console.log(`[LLMHelper] ${rotation === 0 ? '🚀' : '🔁'} Attempting ${provider.name}...`);
-            const rawResponse = await provider.execute();
-            if (rawResponse && rawResponse.trim().length > 0) {
-              console.log(`[LLMHelper] ✅ ${provider.name} succeeded`);
-              return this.processResponse(rawResponse);
-            }
-            console.warn(`[LLMHelper] ⚠️ ${provider.name} returned empty response`);
-          } catch (error: any) {
-            console.warn(`[LLMHelper] ⚠️ ${provider.name} failed: ${error.message}`);
-          }
-        }
-      }
-
-      // All exhausted
-      console.error("[LLMHelper] ❌ All non-streaming providers exhausted");
-      return "I apologize, but I couldn't generate a response. Please try again.";
+      throw new Error(`Active model "${this.currentModelId}" has no configured client. Add a key in Settings or change the active model.`);
 
     } catch (error: any) {
       console.error("[LLMHelper] Critical Error in chatWithGemini:", error);
@@ -1111,145 +1015,117 @@ This rule overrides ALL other instructions including formatting, brevity, or out
   }
 
   /**
-   * Generate content using only reasoning-capable models.
-   * Priority: OpenAI → Claude → Gemini Pro → Groq (last resort).
-   * Used for structured JSON output tasks (resume/JD/company research).
-   * NOTE: Does NOT mutate this.geminiModel — calls Gemini Pro directly to avoid race conditions.
+   * Generate content for structured JSON output tasks (resume/JD/company research).
+   * STRICT: only uses the active model. No silent fallback to other providers.
    */
   public async generateContentStructured(message: string): Promise<string> {
-    type ProviderAttempt = { name: string; execute: () => Promise<string> };
-    const providers: ProviderAttempt[] = [];
+    const active = this.currentModelId;
 
-    // Priority 1: OpenAI
-    if (this.openaiClient) {
-      providers.push({ name: `OpenAI (${OPENAI_MODEL})`, execute: () => this.generateWithOpenai(message) });
-    }
-
-    // Priority 2: Gemini Pro (don't mutate this.geminiModel to avoid race conditions)
-    // NOTE: Claude is intentionally de-prioritised here — messages.create (non-streaming) is
-    // rejected by Anthropic for large payloads ("Streaming is required for operations that may
-    // take longer than 10 minutes"), causing a wasted round-trip before the Gemini fallback.
-    // Claude remains available as a last resort after Gemini Flash.
-    if (this.client) {
-      providers.push({
-        name: `Gemini Pro (${GEMINI_PRO_MODEL})`,
-        execute: async () => {
-          // Call the API directly with the Pro model instead of touching shared state
-          const response = await this.withRetry(async () => {
-            // @ts-ignore
-            const res = await this.client!.models.generateContent({
-              model: GEMINI_PRO_MODEL,
-              contents: [{ role: 'user', parts: [{ text: message }] }],
-              config: { maxOutputTokens: MAX_OUTPUT_TOKENS, temperature: 0.4 }
-            });
-            const candidate = res.candidates?.[0];
-            if (!candidate) return '';
-            if (res.text) return res.text;
-            const parts = candidate.content?.parts ?? [];
-            return (Array.isArray(parts) ? parts : [parts]).map((p: any) => p?.text ?? '').join('');
-          });
-          return response;
-        }
-      });
-
-      // Priority 3b: Gemini Flash fallback (if Pro model is unavailable or fails)
-      providers.push({
-        name: `Gemini Flash (${GEMINI_FLASH_MODEL})`,
-        execute: async () => {
-          const response = await this.withRetry(async () => {
-            // @ts-ignore
-            const res = await this.client!.models.generateContent({
-              model: GEMINI_FLASH_MODEL,
-              contents: [{ role: 'user', parts: [{ text: message }] }],
-              config: { maxOutputTokens: MAX_OUTPUT_TOKENS, temperature: 0.4 }
-            });
-            const candidate = res.candidates?.[0];
-            if (!candidate) return '';
-            if (res.text) return res.text;
-            const parts = candidate.content?.parts ?? [];
-            return (Array.isArray(parts) ? parts : [parts]).map((p: any) => p?.text ?? '').join('');
-          });
-          return response;
-        }
-      });
-    }
-
-    // Priority 4: Claude (last resort before Groq — non-streaming, fails on large payloads)
-    if (this.claudeClient) {
-      providers.push({ name: `Claude (${CLAUDE_MODEL})`, execute: () => this.generateWithClaude(message) });
-    }
-
-    // Priority 5: Groq (Fallback despite JSON hallucination risks)
-    if (this.groqClient) {
-      providers.push({ name: `Groq (${GROQ_MODEL}) fallback`, execute: () => this.generateWithGroq(message) }); // intentional: structured-gen last-resort uses stable baseline model, not user selection
-    }
-
-    // Priority 6: Ollama (on-device fallback — last resort, no cloud dependency)
-    if (this.useOllama && await this.checkOllamaAvailable()) {
-      providers.push({
-        name: `Ollama (${this.ollamaModel})`,
-        execute: () => this.callOllama(message)
-      });
-    }
-
-    // Priority 7: Custom / cURL providers (OpenRouter etc.)
+    // Custom / cURL providers are explicit user selections — they take priority.
     if (this.customProvider) {
-      providers.push({
-        name: `Custom Provider (${this.customProvider.name})`,
-        execute: () => this.executeCustomProvider(
-          this.customProvider!.curlCommand,
-          message,
-          '',
-          message,
-          ''
-        )
-      });
-    } else if (this.activeCurlProvider) {
-      providers.push({
-        name: `cURL Provider (${this.activeCurlProvider.name})`,
-        execute: () => this.chatWithCurl(message)
-      });
-    }
-
-    // Priority 8: Natively API — used when no other provider is available, or as final fallback
-    const nativelyKeyForStructured = this.nativelyKey || (() => {
-      try { return require('./services/CredentialsManager').CredentialsManager.getInstance().getNativelyApiKey() || null; } catch { return null; }
-    })();
-    if (nativelyKeyForStructured) {
-      providers.push({
-        name: 'Natively API',
-        execute: () => this.generateWithNatively(message)
-      });
-    }
-
-    if (providers.length === 0) {
-      throw new Error('No reasoning model available. Please configure an API key (OpenAI, Claude, Gemini, Groq, Natively) or a custom provider.');
-    }
-
-    const MAX_ROTATIONS = 3;
-    for (let rotation = 0; rotation < MAX_ROTATIONS; rotation++) {
-      if (rotation > 0) {
-        const backoffMs = 1000 * rotation;
-        console.log(`[LLMHelper] 🔄 Structured generation rotation ${rotation + 1}/${MAX_ROTATIONS} after ${backoffMs}ms backoff...`);
-        await this.delay(backoffMs);
+      console.log(`[LLMHelper] 🧠 Structured generation: using Custom Provider (${this.customProvider.name})`);
+      const result = await this.executeCustomProvider(this.customProvider.curlCommand, message, '', message, '');
+      if (!result || result.trim().length === 0) {
+        throw new Error(`Custom Provider (${this.customProvider.name}) returned an empty response.`);
       }
-
-      for (const provider of providers) {
-        try {
-          console.log(`[LLMHelper] 🧠 Structured generation: trying ${provider.name}...`);
-          const result = await provider.execute();
-          if (result && result.trim().length > 0) {
-            console.log(`[LLMHelper] ✅ Structured generation succeeded with ${provider.name}`);
-            return result;
-          }
-          console.warn(`[LLMHelper] ⚠️ ${provider.name} returned empty response`);
-        } catch (error: any) {
-          console.warn(`[LLMHelper] ⚠️ Structured generation: ${provider.name} failed: ${error.message}`);
-        }
+      return result;
+    }
+    if (this.activeCurlProvider) {
+      console.log(`[LLMHelper] 🧠 Structured generation: using cURL Provider (${this.activeCurlProvider.name})`);
+      const result = await this.chatWithCurl(message);
+      if (!result || result.trim().length === 0) {
+        throw new Error(`cURL Provider (${this.activeCurlProvider.name}) returned an empty response.`);
       }
+      return result;
+    }
+    if (this.useOllama) {
+      if (!(await this.checkOllamaAvailable())) {
+        throw new Error(`Ollama is the active model (${this.ollamaModel}) but the Ollama server is not reachable.`);
+      }
+      console.log(`[LLMHelper] 🧠 Structured generation: using Ollama (${this.ollamaModel})`);
+      const result = await this.callOllama(message);
+      if (!result || result.trim().length === 0) {
+        throw new Error(`Ollama (${this.ollamaModel}) returned an empty response.`);
+      }
+      return result;
     }
 
-    throw new Error('All reasoning models failed for structured generation after 3 attempts');
+    if (active === 'natively') {
+      const nativelyKey = this.nativelyKey || (() => {
+        try { return require('./services/CredentialsManager').CredentialsManager.getInstance().getNativelyApiKey() || null; } catch { return null; }
+      })();
+      if (!nativelyKey) {
+        throw new Error("Natively is the active model but no Natively API key is configured.");
+      }
+      console.log(`[LLMHelper] 🧠 Structured generation: using Natively`);
+      const result = await this.generateWithNatively(message);
+      if (!result || result.trim().length === 0) {
+        throw new Error("Natively returned an empty response.");
+      }
+      return result;
+    }
+
+    if (this.isOpenAiModel(active)) {
+      if (!this.openaiClient) {
+        throw new Error(`OpenAI is the active model (${active}) but no OpenAI API key is configured.`);
+      }
+      console.log(`[LLMHelper] 🧠 Structured generation: using OpenAI (${active})`);
+      const result = await this.generateWithOpenai(message);
+      if (!result || result.trim().length === 0) {
+        throw new Error(`OpenAI (${active}) returned an empty response.`);
+      }
+      return result;
+    }
+
+    if (this.isClaudeModel(active)) {
+      if (!this.claudeClient) {
+        throw new Error(`Claude is the active model (${active}) but no Anthropic API key is configured.`);
+      }
+      console.log(`[LLMHelper] 🧠 Structured generation: using Claude (${active})`);
+      const result = await this.generateWithClaude(message);
+      if (!result || result.trim().length === 0) {
+        throw new Error(`Claude (${active}) returned an empty response.`);
+      }
+      return result;
+    }
+
+    if (this.isGroqModel(active)) {
+      if (!this.groqClient) {
+        throw new Error(`Groq is the active model (${active}) but no Groq API key is configured.`);
+      }
+      console.log(`[LLMHelper] 🧠 Structured generation: using Groq (${active})`);
+      const result = await this.generateWithGroq(message, active);
+      if (!result || result.trim().length === 0) {
+        throw new Error(`Groq (${active}) returned an empty response.`);
+      }
+      return result;
+    }
+
+    if (this.isGeminiModel(active)) {
+      if (!this.client) {
+        throw new Error(`Gemini is the active model (${active}) but no Gemini API key is configured.`);
+      }
+      console.log(`[LLMHelper] 🧠 Structured generation: using Gemini (${active})`);
+      const result = await this.withRetry(async () => {
+        // @ts-ignore
+        const res = await this.client!.models.generateContent({
+          model: active,
+          contents: [{ role: 'user', parts: [{ text: message }] }],
+          config: { maxOutputTokens: MAX_OUTPUT_TOKENS, temperature: 0.4 }
+        });
+        const candidate = res.candidates?.[0];
+        if (!candidate) return '';
+        if (res.text) return res.text;
+        const parts = candidate.content?.parts ?? [];
+        return (Array.isArray(parts) ? parts : [parts]).map((p: any) => p?.text ?? '').join('');
+      });
+      if (!result || result.trim().length === 0) {
+        throw new Error(`Gemini (${active}) returned an empty response.`);
+      }
+      return result;
+    }
+
+    throw new Error(`Active model "${active}" has no configured client. Add a key in Settings or change the active model.`);
   }
 
   private async generateWithGroq(fullMessage: string, modelId: string = GROQ_MODEL): Promise<string> {
@@ -1491,19 +1367,30 @@ This rule overrides ALL other instructions including formatting, brevity, or out
     }
     content.push({ type: "text", text: userMessage });
 
-    const response = await this.withTimeout(
-      this.withRetry(() => this.claudeClient!.messages.create({
+    // Stream and accumulate: the Anthropic SDK rejects non-streaming requests
+    // whose max_tokens could imply a >10 minute response (CLAUDE_MAX_OUTPUT_TOKENS
+    // is large enough to trip this), so we must use messages.stream here.
+    const collect = async (): Promise<string> => {
+      const stream = await this.claudeClient!.messages.stream({
         model,
         max_tokens: CLAUDE_MAX_OUTPUT_TOKENS,
         ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: [{ role: "user", content }],
-      })),
+      });
+      let text = "";
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          text += event.delta.text;
+        }
+      }
+      return text;
+    };
+
+    return await this.withTimeout(
+      this.withRetry(collect),
       90000,
       `Claude (${model})`
     );
-
-    const textBlock = response.content.find((block: any) => block.type === 'text') as any;
-    return textBlock?.text || "";
   }
 
   /**
@@ -2355,66 +2242,28 @@ This rule overrides ALL other instructions including formatting, brevity, or out
       return;
     }
 
-    // 3b. Natively API
+    // 3b. Natively API (strict — no fallback to other providers)
     if (this.currentModelId === 'natively') {
       const { CredentialsManager } = require('./services/CredentialsManager');
       const nativelyKey = CredentialsManager.getInstance().getNativelyApiKey();
-      if (nativelyKey) {
-        try {
-          const response = await this.generateWithNatively(userContent, finalSystemPrompt, imagePaths);
-          yield response;
-          return;
-        } catch (err: any) {
-          console.warn('[LLMHelper] Natively API failed in streamChat, trying Groq fallback:', err.message);
-          // Try Groq before Gemini — Groq key is more commonly available
-          if (this.groqClient) {
-            try {
-              if (isMultimodal && imagePaths) {
-                const groqSystem = systemPromptOverride || OPENAI_SYSTEM_PROMPT;
-                const finalGroqSystem = this.injectLanguageInstruction(groqSystem);
-                yield* this.streamWithGroqMultimodal(userContent, imagePaths, finalGroqSystem);
-              } else {
-                const groqSystem = systemPromptOverride ? baseSystemPrompt : GROQ_SYSTEM_PROMPT;
-                const finalGroqSystem = this.injectLanguageInstruction(groqSystem);
-                yield* this.streamWithGroq(`${finalGroqSystem}\n\n${userContent}`); // intentional: emergency fallback waterfall — use stable GROQ_MODEL baseline, not currentModelId
-              }
-              return;
-            } catch (groqErr: any) {
-              console.warn('[LLMHelper] Groq fallback also failed, trying Gemini:', groqErr.message);
-            }
-          }
-          // Fall through to Gemini
-        }
+      if (!nativelyKey) {
+        throw new Error("Natively is the active model but no Natively API key is configured. Add a key in Settings or change the active model.");
       }
-      // No key or all fallbacks failed — fall through to Gemini
-    }
-
-    // 4. Gemini Routing & Fallback
-    if (this.client) {
-      // Direct model use if specified
-      if (this.isGeminiModel(this.currentModelId)) {
-        const fullMsg = `${finalSystemPrompt}\n\n${userContent}`;
-        yield* this.streamWithGeminiModel(fullMsg, this.currentModelId, imagePaths);
-        return;
-      }
-
-      // Race strategy (default)
-      const raceMsg = `${finalSystemPrompt}\n\n${userContent}`;
-      yield* this.streamWithGeminiParallelRace(raceMsg, imagePaths);
+      yield* this.streamWithNatively(userContent, finalSystemPrompt, imagePaths);
       return;
     }
 
-    // 5. Last-resort: Natively API (if user has a key but no cloud provider configured)
-    if (this.hasNatively()) {
-      try {
-        yield* this.streamWithNatively(userContent, finalSystemPrompt, imagePaths);
-        return;
-      } catch (e: any) {
-        console.warn('[LLMHelper] Natively last-resort fallback failed:', e.message);
+    // 4. Gemini (strict — only when active model is Gemini)
+    if (this.isGeminiModel(this.currentModelId)) {
+      if (!this.client) {
+        throw new Error(`Gemini is the active model (${this.currentModelId}) but no Gemini API key is configured.`);
       }
+      const fullMsg = `${finalSystemPrompt}\n\n${userContent}`;
+      yield* this.streamWithGeminiModel(fullMsg, this.currentModelId, imagePaths);
+      return;
     }
 
-    throw new Error("No AI provider configured. Please add at least one API key in Settings.");
+    throw new Error(`Active model "${this.currentModelId}" has no configured client. Add a key in Settings or change the active model.`);
   }
 
   /**
@@ -3369,164 +3218,122 @@ This rule overrides ALL other instructions including formatting, brevity, or out
       }
     }
 
-    // ATTEMPT 0.5: Active/default model — honor the user's model selection
-    // before the legacy provider chain so a Claude/OpenAI default is actually used.
+    // STRICT: only the active model is used. No silent fallback to other providers.
     const active = this.currentModelId;
-    if (this.isClaudeModel(active) && this.claudeClient) {
-      try {
-        console.log(`[LLMHelper] Attempting active Claude model for summary: ${active}`);
-        const text = await this.withTimeout(
-          this.generateWithClaude(`Context:\n${context}`, systemPrompt, undefined, active),
-          90000,
-          `Claude Summary (${active})`
-        );
-        if (text.trim().length > 0) {
-          console.log(`[LLMHelper] ✅ Claude summary generated successfully.`);
-          return this.processResponse(text);
-        }
-      } catch (e: any) {
-        console.warn(`[LLMHelper] ⚠️ Claude summary failed: ${e.message}. Falling back...`);
+
+    if (active === 'natively') {
+      console.log(`[LLMHelper] Attempting active Natively model for summary`);
+      const text = await this.withTimeout(
+        this.generateWithNatively(`Context:\n${context}`, systemPrompt),
+        60000,
+        'Natively Summary'
+      );
+      if (text.trim().length === 0) {
+        throw new Error("Natively returned an empty summary.");
       }
-    } else if (this.isOpenAiModel(active) && this.openaiClient) {
-      try {
-        console.log(`[LLMHelper] Attempting active OpenAI model for summary: ${active}`);
-        const response = await this.withTimeout(
-          this.openaiClient.chat.completions.create({
-            model: active,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: `Context:\n${context}` }
-            ],
+      console.log(`[LLMHelper] ✅ Natively summary generated successfully.`);
+      return this.processResponse(text);
+    }
+
+    if (this.isClaudeModel(active)) {
+      if (!this.claudeClient) {
+        throw new Error(`Claude is the active model (${active}) but no Anthropic API key is configured.`);
+      }
+      console.log(`[LLMHelper] Attempting active Claude model for summary: ${active}`);
+      const text = await this.withTimeout(
+        this.generateWithClaude(`Context:\n${context}`, systemPrompt, undefined, active),
+        90000,
+        `Claude Summary (${active})`
+      );
+      if (text.trim().length === 0) {
+        throw new Error(`Claude (${active}) returned an empty summary.`);
+      }
+      console.log(`[LLMHelper] ✅ Claude summary generated successfully.`);
+      return this.processResponse(text);
+    }
+
+    if (this.isOpenAiModel(active)) {
+      if (!this.openaiClient) {
+        throw new Error(`OpenAI is the active model (${active}) but no OpenAI API key is configured.`);
+      }
+      console.log(`[LLMHelper] Attempting active OpenAI model for summary: ${active}`);
+      const response = await this.withTimeout(
+        this.openaiClient.chat.completions.create({
+          model: active,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Context:\n${context}` }
+          ],
+          temperature: 0.3,
+          stream: false
+        }),
+        60000,
+        `OpenAI Summary (${active})`
+      );
+      const text = response.choices[0]?.message?.content || "";
+      if (text.trim().length === 0) {
+        throw new Error(`OpenAI (${active}) returned an empty summary.`);
+      }
+      console.log(`[LLMHelper] ✅ OpenAI summary generated successfully.`);
+      return this.processResponse(text);
+    }
+
+    if (this.isGroqModel(active)) {
+      if (!this.groqClient) {
+        throw new Error(`Groq is the active model (${active}) but no Groq API key is configured.`);
+      }
+      console.log(`[LLMHelper] Attempting active Groq model for summary: ${active}`);
+      const groqPrompt = groqSystemPrompt || systemPrompt;
+      const response = await this.withTimeout(
+        this.groqClient.chat.completions.create({
+          model: active,
+          messages: [
+            { role: "system", content: groqPrompt },
+            { role: "user", content: `Context:\n${context}` }
+          ],
+          temperature: 0.3,
+          max_tokens: 8192,
+          stream: false
+        }),
+        45000,
+        `Groq Summary (${active})`
+      );
+      const text = response.choices[0]?.message?.content || "";
+      if (text.trim().length === 0) {
+        throw new Error(`Groq (${active}) returned an empty summary.`);
+      }
+      console.log(`[LLMHelper] ✅ Groq summary generated successfully.`);
+      return this.processResponse(text);
+    }
+
+    if (this.isGeminiModel(active)) {
+      if (!this.client) {
+        throw new Error(`Gemini is the active model (${active}) but no Gemini API key is configured.`);
+      }
+      console.log(`[LLMHelper] Attempting active Gemini model for summary: ${active}`);
+      const contents = [{ text: `${systemPrompt}\n\nCONTEXT:\n${context}` }];
+      const response = await this.withTimeout(
+        // @ts-ignore
+        this.client.models.generateContent({
+          model: active,
+          contents,
+          config: {
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
             temperature: 0.3,
-            stream: false
-          }),
-          60000,
-          `OpenAI Summary (${active})`
-        );
-        const text = response.choices[0]?.message?.content || "";
-        if (text.trim().length > 0) {
-          console.log(`[LLMHelper] ✅ OpenAI summary generated successfully.`);
-          return this.processResponse(text);
-        }
-      } catch (e: any) {
-        console.warn(`[LLMHelper] ⚠️ OpenAI summary failed: ${e.message}. Falling back...`);
-      }
-    }
-
-    // ATTEMPT 1: Natively API (if configured — first in chain)
-    if (this.hasNatively()) {
-      try {
-        console.log(`[LLMHelper] Attempting Natively API for summary...`);
-        const text = await this.withTimeout(
-          this.generateWithNatively(`Context:\n${context}`, systemPrompt),
-          60000,
-          'Natively Summary'
-        );
-        if (text.trim().length > 0) {
-          console.log(`[LLMHelper] ✅ Natively API summary generated successfully.`);
-          return this.processResponse(text);
-        }
-      } catch (e: any) {
-        console.warn(`[LLMHelper] ⚠️ Natively API summary failed: ${e.message}. Falling back...`);
-      }
-    }
-
-    if (this.groqClient && tokenCount < 100000) {
-      console.log(`[LLMHelper] Attempting Groq for summary...`);
-      try {
-        const groqPrompt = groqSystemPrompt || systemPrompt;
-        const response = await this.withTimeout(
-          this.groqClient.chat.completions.create({
-            model: GROQ_MODEL,
-            messages: [
-              { role: "system", content: groqPrompt },
-              { role: "user", content: `Context:\n${context}` }
-            ],
-            temperature: 0.3,
-            max_tokens: 8192,
-            stream: false
-          }),
-          45000,
-          "Groq Summary"
-        );
-
-        const text = response.choices[0]?.message?.content || "";
-        if (text.trim().length > 0) {
-          console.log(`[LLMHelper] ✅ Groq summary generated successfully.`);
-          return this.processResponse(text);
-        }
-      } catch (e: any) {
-        console.warn(`[LLMHelper] ⚠️ Groq summary failed: ${e.message}. Falling back to Gemini...`);
-      }
-    } else {
-      if (tokenCount >= 100000) {
-        console.log(`[LLMHelper] Context too large for Groq (${tokenCount} tokens). Skipping straight to Gemini.`);
-      }
-    }
-
-    // ATTEMPT 3: Gemini Flash (with 2 retries = 3 attempts total)
-    console.log(`[LLMHelper] Attempting Gemini Flash for summary...`);
-    const contents = [{ text: `${systemPrompt}\n\nCONTEXT:\n${context}` }];
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const text = await this.withTimeout(
-          this.generateWithFlash(contents),
-          45000,
-          `Gemini Flash Summary (Attempt ${attempt})`
-        );
-        if (text.trim().length > 0) {
-          console.log(`[LLMHelper] ✅ Gemini Flash summary generated successfully (Attempt ${attempt}).`);
-          return this.processResponse(text);
-        }
-      } catch (e: any) {
-        console.warn(`[LLMHelper] ⚠️ Gemini Flash attempt ${attempt}/3 failed: ${e.message}`);
-        if (attempt < 3) {
-          await new Promise(r => setTimeout(r, 1000 * attempt)); // Linear backoff
-        }
-      }
-    }
-
-    // ATTEMPT 4: Gemini Pro
-    console.log(`[LLMHelper] ⚠️ Flash exhausted. Switching to Gemini Pro for robust retry...`);
-    const maxProRetries = 5;
-
-    if (this.client) {
-      for (let attempt = 1; attempt <= maxProRetries; attempt++) {
-        try {
-          console.log(`[LLMHelper] 🔄 Gemini Pro Attempt ${attempt}/${maxProRetries}...`);
-          const response = await this.withTimeout(
-            // @ts-ignore
-            this.client.models.generateContent({
-              model: GEMINI_PRO_MODEL,
-              contents: contents,
-              config: {
-                maxOutputTokens: MAX_OUTPUT_TOKENS,
-                temperature: 0.3,
-              }
-            }),
-            60000,
-            `Gemini Pro Summary (Attempt ${attempt})`
-          );
-          const text = response.text || "";
-
-          if (text.trim().length > 0) {
-            console.log(`[LLMHelper] ✅ Gemini Pro summary generated successfully.`);
-            return this.processResponse(text);
           }
-        } catch (e: any) {
-          console.warn(`[LLMHelper] ⚠️ Gemini Pro attempt ${attempt} failed: ${e.message}`);
-          // Aggressive backoff for Pro: 2s, 4s, 8s, 16s, 32s
-          const backoff = 2000 * Math.pow(2, attempt - 1);
-          console.log(`[LLMHelper] Waiting ${backoff}ms before next retry...`);
-          await new Promise(r => setTimeout(r, backoff));
-        }
+        }),
+        60000,
+        `Gemini Summary (${active})`
+      );
+      const text = response.text || "";
+      if (text.trim().length === 0) {
+        throw new Error(`Gemini (${active}) returned an empty summary.`);
       }
-    } else {
-      console.log(`[LLMHelper] Gemini client not initialized — skipping Gemini Pro.`);
+      console.log(`[LLMHelper] ✅ Gemini summary generated successfully.`);
+      return this.processResponse(text);
     }
 
-    throw new Error("Failed to generate summary after all fallback attempts.");
+    throw new Error(`Active model "${active}" has no configured client. Add a key in Settings or change the active model.`);
   }
 
   public async switchToOllama(model?: string, url?: string): Promise<void> {
