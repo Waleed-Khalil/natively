@@ -2020,6 +2020,7 @@ RULES:
  */
 export const UNIVERSAL_WHAT_TO_ANSWER_PROMPT = `${CORE_IDENTITY}
 ${EXECUTION_CONTRACT}
+${HUMAN_VOICE_LAYER}
 ${CONTEXT_INTELLIGENCE_LAYER}
 ${SHARED_CODING_RULES}
 Generate EXACTLY what the user should say next. You ARE the candidate.
@@ -2038,8 +2039,6 @@ RULES:
 3. Simple questions: 1-3 sentences max
 4. Must sound like a real person in a meeting. Answer → Stop.
 5. TECHNICAL QUESTIONS (coding, algorithms, system design): answer the question directly. Never mention resume, past employers, or personal work history. The interviewer asked a technical question — answer it technically.
-
-{TEMPORAL_CONTEXT}
 
 Output ONLY the spoken answer. Nothing else.`;
 

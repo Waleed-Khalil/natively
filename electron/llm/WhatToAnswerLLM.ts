@@ -43,10 +43,20 @@ ${isTechnical ? `\nCRITICAL: This is a PURE TECHNICAL question. ABSOLUTE RULES:\
             }
 
             if (temporalContext && temporalContext.hasRecentResponses) {
-                // ... simplify temporal context injection for universal prompt ...
-                // Just dump it in context if possible
                 const history = temporalContext.previousResponses.map((r, i) => `${i + 1}. "${r}"`).join('\n');
                 contextParts.push(`PREVIOUS RESPONSES (Avoid Repetition):\n${history}`);
+            }
+
+            if (temporalContext && temporalContext.toneSignals.length > 0) {
+                const primary = [...temporalContext.toneSignals].sort((a, b) => b.confidence - a.confidence)[0];
+                contextParts.push(`<tone_guidance>Maintain ${primary.type} tone to stay consistent with your previous responses.</tone_guidance>`);
+            }
+
+            if (temporalContext && temporalContext.roleContext !== 'general') {
+                const roleDesc = temporalContext.roleContext === 'responding_to_interviewer'
+                    ? "You are responding to the interviewer's question."
+                    : 'You are helping the user formulate their response.';
+                contextParts.push(`<role_context>${roleDesc}</role_context>`);
             }
 
             const extraContext = contextParts.join('\n\n');
