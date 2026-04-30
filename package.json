@@ -22,7 +22,8 @@
     "build:native": "node scripts/build-native.js",
     "voice-profile:build": "npm run build:electron:tsc && node scripts/voice-profile/build.js",
     "voice-profile:inspect": "npm run build:electron:tsc && node scripts/voice-profile/inspect.js",
-    "test:voice-profile": "node --test test/voice-profile/*.test.js"
+    "test:voice-profile": "node --test test/voice-profile/*.test.js",
+    "test:interviewer-perspective": "node --test test/interviewer-perspective/*.test.js"
   },
   "build": {
     "generateUpdatesFilesForAllChannels": true,

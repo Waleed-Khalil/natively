@@ -27,7 +27,8 @@ export class WhatToAnswerLLM {
         intentResult?: IntentResult,
         imagePaths?: string[],
         manualTrigger: boolean = false,
-        register?: ConversationRegister
+        register?: ConversationRegister,
+        interviewerPerspective?: string
     ): AsyncGenerator<string> {
         try {
             // Build a rich message context
@@ -86,6 +87,16 @@ ${isTechnical ? `\nCRITICAL: This is a PURE TECHNICAL question. ABSOLUTE RULES:\
                         `DO NOT reuse anchors, projects, or metrics from above. Vary openers — pick one not in the recent list.`
                     );
                 }
+            }
+
+            // Phase 3 — interviewer perspective. Pre-generation pass that
+            // briefs the answer LLM on what this specific interviewer is
+            // looking for. Engine returns null when disabled, missing, or
+            // timed out, so this is a no-op outside the happy path.
+            if (interviewerPerspective && interviewerPerspective.trim().length > 0) {
+                contextParts.push(
+                    `<interviewer_perspective>\n${interviewerPerspective.trim()}\n</interviewer_perspective>`
+                );
             }
 
             // Candidate voice anchor: few-shot of the user's actual speech, built

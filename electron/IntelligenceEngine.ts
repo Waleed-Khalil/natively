@@ -3,6 +3,7 @@
 // Extracted from IntelligenceManager to decouple LLM logic from state management.
 
 import { EventEmitter } from 'events';
+import { createHash } from 'crypto';
 import { LLMHelper } from './LLMHelper';
 import { SessionTracker, TranscriptSegment, SuggestionTrigger, ContextItem } from './SessionTracker';
 import {
@@ -11,6 +12,18 @@ import {
     prepareTranscriptForWhatToAnswer, buildTemporalContext,
     AssistantResponse as LLMAssistantResponse, classifyIntent
 } from './llm';
+import { InterviewerPerspectiveLLM, PerspectiveCache } from './llm/InterviewerPerspectiveLLM';
+import { InterviewerModelBuilder } from './services/InterviewerModelBuilder';
+
+// Phase 3 kill switches. The perspective pass costs 1 LLM call per fire on
+// the hot path (capped at 250ms). Manual triggers fire 15-30 times per
+// interview — fine. Autopilot fires opportunistically on every interviewer
+// turn that looks like a question — adding perspective there compounds cost
+// and latency. Default: enable for manual, disable for autopilot. Promote to
+// SettingsManager when the UI layer is ready.
+const PERSPECTIVE_ENABLED_FOR_MANUAL = true;
+const PERSPECTIVE_ENABLED_FOR_AUTOPILOT = false;
+const PERSPECTIVE_CACHE_TTL_MS = 30_000;
 
 // Mode types
 export type IntelligenceMode = 'idle' | 'assist' | 'what_to_say' | 'follow_up' | 'recap' | 'clarify' | 'manual' | 'follow_up_questions' | 'code_hint' | 'brainstorm';
@@ -75,6 +88,14 @@ export class IntelligenceEngine extends EventEmitter {
     private assistCancellationToken: AbortController | null = null;
     private currentGenerationId: number = 0;
 
+    // Phase 3 — interviewer perspective layer
+    private interviewerModel: InterviewerModelBuilder | null = null;
+    private perspectiveLLM: InterviewerPerspectiveLLM | null = null;
+    // Cache key = sha1(question_text) + ':' + modelVersion. TTL 30s — short
+    // enough that stale perspective doesn't stick after a topic shift, long
+    // enough to deduplicate back-to-back triggers on the same question.
+    private perspectiveCache: PerspectiveCache = new PerspectiveCache(PERSPECTIVE_CACHE_TTL_MS);
+
     // Keep reference to LLMHelper for client access
     private llmHelper: LLMHelper;
 
@@ -121,6 +142,14 @@ export class IntelligenceEngine extends EventEmitter {
         this.codeHintLLM = new CodeHintLLM(this.llmHelper);
         this.brainstormLLM = new BrainstormLLM(this.llmHelper);
 
+        // Phase 3 — interviewer-perspective layer. Initialised here (rather
+        // than in the constructor) because reinitializeLLMs swaps out the
+        // helper on key changes; we want the new helper bound to both.
+        if (!this.interviewerModel) {
+            this.interviewerModel = new InterviewerModelBuilder(this.llmHelper);
+        }
+        this.perspectiveLLM = new InterviewerPerspectiveLLM(this.llmHelper);
+
         // Sync RecapLLM reference to SessionTracker for epoch compaction
         this.session.setRecapLLM(this.recapLLM);
     }
@@ -139,6 +168,14 @@ export class IntelligenceEngine extends EventEmitter {
     handleTranscript(segment: TranscriptSegment, skipRefinementCheck: boolean = false): void {
         const result = this.session.handleTranscript(segment);
         this.lastTranscriptTime = Date.now();
+
+        // Phase 3 — feed final interviewer turns to the model builder. Cheap
+        // path: the builder buffers, counts substantive words, decides
+        // internally whether to schedule an LLM update (debounced 60s,
+        // threshold ~150 words). The async update fires off-hot-path.
+        if (segment.final && segment.speaker === 'interviewer') {
+            this.interviewerModel?.feedTurn(segment.text);
+        }
 
         // Check for follow-up intent if user is speaking
         if (result && !skipRefinementCheck && result.role === 'user' && this.session.getLastAssistantMessage()) {
@@ -296,12 +333,31 @@ export class IntelligenceEngine extends EventEmitter {
 
             console.log(`[IntelligenceEngine] Temporal RAG: ${temporalContext.previousResponses.length} responses, tone: ${temporalContext.toneSignals[0]?.type || 'neutral'}, intent: ${intentResult.intent}${imagePaths?.length ? `, with ${imagePaths.length} image(s)` : ''}`);
 
+            // Phase 3 — interviewer perspective. Gated by manual/autopilot
+            // kill switch and by whether the model has any non-default
+            // content yet. Returns null on cache miss + LLM timeout (250ms);
+            // the answer LLM then proceeds without the block.
+            const perspectiveResult = await this.maybeGetInterviewerPerspective(
+                lastInterviewerTurn ?? question ?? '',
+                manualTrigger
+            );
+            if (perspectiveResult) {
+                // recommendedAction is logged today and consumed by Phase 5
+                // when the autopilot routing layer can fork ANSWER vs ASK_BACK
+                // vs BRIDGE vs HOLD. Logging it here keeps the data visible
+                // so we can observe distribution before wiring it through.
+                console.log(
+                    `[IntelligenceEngine] Perspective recommendedAction=${perspectiveResult.recommendedAction}`
+                );
+            }
+            const interviewerPerspective = perspectiveResult?.perspective;
+
             const generationId = ++this.currentGenerationId;
             let fullAnswer = "";
             // RC-03 fix: hold a reference to the generator so we can call .return()
             // to properly terminate the network request when a new generation starts.
             const conversationRegister = this.session.getConversationRegister();
-            const stream = this.whatToAnswerLLM.generateStream(preparedTranscript, temporalContext, intentResult, imagePaths, manualTrigger, conversationRegister);
+            const stream = this.whatToAnswerLLM.generateStream(preparedTranscript, temporalContext, intentResult, imagePaths, manualTrigger, conversationRegister, interviewerPerspective);
             let streamAborted = false;
 
             for await (const token of stream) {
@@ -828,5 +884,70 @@ export class IntelligenceEngine extends EventEmitter {
             this.assistCancellationToken.abort();
             this.assistCancellationToken = null;
         }
+        // Phase 3 — clear per-session interviewer state so a new session
+        // doesn't inherit the previous interviewer's profile or perspective
+        // cache. The model builder itself stays allocated; just its content
+        // is wiped.
+        this.interviewerModel?.reset();
+        this.perspectiveCache.clear();
     }
+
+    // ============================================
+    // Phase 3 — Interviewer Perspective
+    // ============================================
+
+    /**
+     * On the hot path of runWhatShouldISay, fetch a "what would impress this
+     * interviewer right now" briefing. Returns null when:
+     *   - The kill switch is off for this trigger source (autopilot default)
+     *   - The interviewer model hasn't accumulated any meaningful content yet
+     *   - The LLM call exceeds the 250ms timeout
+     *   - The question text is empty
+     *
+     * Caching: keyed by sha1(question) + ':' + modelVersion, 30s TTL. The
+     * version in the key means a model update invalidates everything keyed
+     * to the old version, so the cache never serves stale-relative-to-model
+     * perspective.
+     */
+    private async maybeGetInterviewerPerspective(
+        question: string,
+        manualTrigger: boolean
+    ): Promise<import('./llm/InterviewerPerspectiveLLM').PerspectiveResult | null> {
+        const enabled = manualTrigger ? PERSPECTIVE_ENABLED_FOR_MANUAL : PERSPECTIVE_ENABLED_FOR_AUTOPILOT;
+        if (!enabled) return null;
+        if (!this.perspectiveLLM || !this.interviewerModel) return null;
+        if (!this.interviewerModel.hasMeaningfulModel()) return null;
+
+        const trimmed = (question || '').trim();
+        if (!trimmed) return null;
+
+        const version = this.interviewerModel.getVersion();
+        const key = perspectiveCacheKey(trimmed, version);
+
+        const cached = this.perspectiveCache.get(key);
+        if (cached) return cached;
+
+        const value = await this.perspectiveLLM.generate(
+            this.interviewerModel.getModel(),
+            trimmed,
+            version
+        );
+        if (!value) return null;
+
+        this.perspectiveCache.set(key, value);
+        return value;
+    }
+}
+
+/**
+ * Cache key for the perspective layer. sha1 just to keep keys short and
+ * stable across runs. Question length isn't bounded by the caller, so the
+ * paranoid 4000-char clip before hashing is defence against pathological
+ * input — costs nothing in the common case.
+ *
+ * Exported so unit tests can verify version-coupling behaviour directly.
+ */
+export function perspectiveCacheKey(question: string, modelVersion: number): string {
+    const hash = createHash('sha1').update(question.slice(0, 4000)).digest('hex').slice(0, 16);
+    return `${hash}:v${modelVersion}`;
 }
