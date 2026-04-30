@@ -7,16 +7,16 @@ import { DatabaseManager } from "./db/DatabaseManager"; // Import Database Manag
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
-import { AudioDevices } from "./audio/AudioDevices";
-
 
 import { RECOGNITION_LANGUAGES, AI_RESPONSE_LANGUAGES } from "./config/languages"
+import { safeHandle } from "./ipc/helpers";
+import { registerThemeHandlers } from "./ipc/theme";
+import { registerCalendarHandlers } from "./ipc/calendar";
+import { registerModelSelectorWindowHandlers } from "./ipc/modelSelectorWindow";
+import { registerDonationHandlers } from "./ipc/donations";
+import { registerNativeAudioHandlers } from "./ipc/nativeAudio";
 
 export function initializeIpcHandlers(appState: AppState): void {
-  const safeHandle = (channel: string, listener: (event: any, ...args: any[]) => Promise<any> | any) => {
-    ipcMain.removeHandler(channel);
-    ipcMain.handle(channel, listener);
-  };
 
   /**
    * Returns true if the user has an active premium license OR an unexpired free trial.
@@ -306,28 +306,7 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  // Donation IPC Handlers
-  safeHandle("get-donation-status", async () => {
-    const { DonationManager } = require('./DonationManager');
-    const manager = DonationManager.getInstance();
-    return {
-      shouldShow: manager.shouldShowToaster(),
-      hasDonated: manager.getDonationState().hasDonated,
-      lifetimeShows: manager.getDonationState().lifetimeShows
-    };
-  });
-
-  safeHandle("mark-donation-toast-shown", async () => {
-    const { DonationManager } = require('./DonationManager');
-    DonationManager.getInstance().markAsShown();
-    return { success: true };
-  });
-
-  safeHandle("set-donation-complete", async () => {
-    const { DonationManager } = require('./DonationManager');
-    DonationManager.getInstance().setHasDonated(true);
-    return { success: true };
-  });
+  registerDonationHandlers();
 
 
   // Generate suggestion from transcript - Natively-style text-only reasoning
@@ -2015,88 +1994,9 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   });
 
-  // --- Model Selector Window IPC ---
+  registerModelSelectorWindowHandlers(appState);
 
-  safeHandle("show-model-selector", (_, coords: { x: number; y: number }) => {
-    appState.modelSelectorWindowHelper.showWindow(coords.x, coords.y);
-  });
-
-  safeHandle("hide-model-selector", () => {
-    appState.modelSelectorWindowHelper.hideWindow();
-  });
-
-  safeHandle("toggle-model-selector", (_, coords: { x: number; y: number }) => {
-    appState.modelSelectorWindowHelper.toggleWindow(coords.x, coords.y);
-  });
-
-
-
-  // Native Audio Service Handlers
-  // Native Audio handlers removed as part of migration to driverless architecture
-  safeHandle("native-audio-status", async () => {
-    // Always return true or pseudo-status since it's "driverless"
-    return { connected: true };
-  });
-
-  safeHandle("get-input-devices", async () => {
-    return AudioDevices.getInputDevices();
-  });
-
-  safeHandle("get-output-devices", async () => {
-    return AudioDevices.getOutputDevices();
-  });
-
-  safeHandle("set-audio-source-pids", async (_evt, pids: number[]) => {
-    appState.setManualAudioSourcePids(Array.isArray(pids) ? pids : []);
-    return { success: true };
-  });
-
-  safeHandle("set-audio-source-filter", async (_evt, filter: { pids?: number[]; bundleIds?: string[] }) => {
-    appState.setManualAudioSourceFilter({
-      pids: Array.isArray(filter?.pids) ? filter.pids : [],
-      bundleIds: Array.isArray(filter?.bundleIds) ? filter.bundleIds : [],
-    });
-    return { success: true };
-  });
-
-  safeHandle("list-audio-processes", async () => {
-    try {
-      const native = require("./audio/nativeModuleLoader").loadNativeModule();
-      if (!native || typeof native.listAudioProcesses !== "function") {
-        return [];
-      }
-      const list = native.listAudioProcesses();
-      return Array.isArray(list) ? list : [];
-    } catch (err) {
-      console.warn("[ipc] list-audio-processes failed:", (err as Error).message);
-      return [];
-    }
-  });
-
-  safeHandle("start-audio-test", async (event, deviceId?: string) => {
-    await appState.startAudioTest(deviceId);
-    return { success: true };
-  });
-
-  safeHandle("stop-audio-test", async () => {
-    appState.stopAudioTest();
-    return { success: true };
-  });
-
-  safeHandle("start-source-audio-test", async (_event, filter?: { pids?: number[]; bundleIds?: string[]; outputDeviceId?: string }) => {
-    await appState.startSourceAudioTest(filter);
-    return { success: true };
-  });
-
-  safeHandle("stop-source-audio-test", async () => {
-    appState.stopSourceAudioTest();
-    return { success: true };
-  });
-
-  safeHandle("set-recognition-language", async (_, key: string) => {
-    appState.setRecognitionLanguage(key);
-    return { success: true };
-  });
+  registerNativeAudioHandlers(appState);
 
   // ==========================================
   // Meeting Lifecycle Handlers
@@ -2436,59 +2336,9 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   });
 
-  // ==========================================
-  // Theme System Handlers
-  // ==========================================
+  registerThemeHandlers(appState);
 
-  safeHandle("theme:get-mode", () => {
-    const tm = appState.getThemeManager();
-    return {
-      mode: tm.getMode(),
-      resolved: tm.getResolvedTheme()
-    };
-  });
-
-  safeHandle("theme:set-mode", (_, mode: 'system' | 'light' | 'dark') => {
-    appState.getThemeManager().setMode(mode);
-    return { success: true };
-  });
-
-  // ==========================================
-  // Calendar Integration Handlers
-  // ==========================================
-
-  safeHandle("calendar-connect", async () => {
-    try {
-      const { CalendarManager } = require('./services/CalendarManager');
-      await CalendarManager.getInstance().startAuthFlow();
-      return { success: true };
-    } catch (error: any) {
-      console.error("Calendar auth error:", error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  safeHandle("calendar-disconnect", async () => {
-    const { CalendarManager } = require('./services/CalendarManager');
-    await CalendarManager.getInstance().disconnect();
-    return { success: true };
-  });
-
-  safeHandle("get-calendar-status", async () => {
-    const { CalendarManager } = require('./services/CalendarManager');
-    return CalendarManager.getInstance().getConnectionStatus();
-  });
-
-  safeHandle("get-upcoming-events", async () => {
-    const { CalendarManager } = require('./services/CalendarManager');
-    return CalendarManager.getInstance().getUpcomingEvents();
-  });
-
-  safeHandle("calendar-refresh", async () => {
-    const { CalendarManager } = require('./services/CalendarManager');
-    await CalendarManager.getInstance().refreshState();
-    return { success: true };
-  });
+  registerCalendarHandlers();
 
   // ==========================================
   // Follow-up Email Handlers
