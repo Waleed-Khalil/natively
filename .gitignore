@@ -2,8 +2,6 @@
 logs
 .env
 /.env
-Sales20260405-60-494j8t.csv
-/Sales20260405-60-494j8t.csv
 
 env
 /env
@@ -18,9 +16,6 @@ release
 .release
 demo.mp4
 tmp
-.cursorrules
-.windsurfrules
-change.md
 # nativelyapi is a separate git repo — exclude from parent repo tracking
 /nativelyapi
 
@@ -103,10 +98,6 @@ web_modules/
 .env.test.local
 .env.production.local
 .env.local
-
-evinresume.pdf
-TPA Campus JD - SalesCode.pdf
-
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -209,12 +200,5 @@ planning/live-negotiation/temp/
 /.idea/
 
 # Local test and temporary files
-*-test.js
-test-*.js
-test_*.js
-test_*.py
 qa-report.json
 templog*.txt
-dodollm.txt
-temp_code_expansion/
-cluelyprompts/

@@ -16,10 +16,9 @@
     "skipLibCheck": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@hooks/*": ["./src/hooks/*"],
-      "@config/*": ["./src/config/*"]
+      "@hooks/*": ["./src/hooks/*"]
     }
   },
-  "include": ["src", "premium/src"], // React source files and optional premium components
+  "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
