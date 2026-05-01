@@ -27,6 +27,7 @@ import { ModesManager } from "./services/ModesManager"
 import { SystemAudioCapture } from "./audio/SystemAudioCapture"
 import { scanAudioSourcePids } from "./audio/audioSourcePidScanner"
 import { MicrophoneCapture } from "./audio/MicrophoneCapture"
+import { AecController } from "./audio/AecController"
 import { GoogleSTT } from "./audio/GoogleSTT"
 import { RestSTT } from "./audio/RestSTT"
 import { DeepgramStreamingSTT } from "./audio/DeepgramStreamingSTT"
@@ -1127,6 +1128,29 @@ export class AppState {
     );
   }
 
+  /** Whether the stage-2 NLMS adaptive AEC engine should run during meetings.
+   *  Stage 1 (the cross-correlation gate) is always on when reference audio is
+   *  fresh — it's free and never hurts. Stage 2 is opt-out for users who
+   *  prefer to bypass it (e.g. if it causes double-talk attenuation issues on
+   *  their hardware). Defaults to ON: laptop-speaker bleed-through is the
+   *  modal failure case the AEC was built to solve, and the cost is bounded.
+   */
+  private aecStage2Enabled: boolean = true;
+
+  public setAecStage2Enabled(enabled: boolean): void {
+    this.aecStage2Enabled = !!enabled;
+    AecController.setEnabled(this.aecStage2Enabled);
+    console.log(`[Main] AEC stage-2 (NLMS) ${this.aecStage2Enabled ? 'enabled' : 'disabled'}.`);
+  }
+
+  public isAecStage2Enabled(): boolean {
+    return this.aecStage2Enabled;
+  }
+
+  public getAecMetrics(): ReturnType<typeof AecController.getMetrics> {
+    return AecController.getMetrics();
+  }
+
   private effectiveAudioSourcePids(): number[] {
     if (this.manualAudioSourceBundleIds.length > 0) return [];
     if (this.manualAudioSourcePids.length > 0) return this.manualAudioSourcePids;
@@ -1250,17 +1274,25 @@ export class AppState {
   }
 
   private shouldRouteMicrophoneAsInterviewer(text: string): boolean {
-    // The mic almost always doubles as a speaker echo channel: when the user
-    // is on built-in speakers, anything Chrome/Zoom plays back leaks into the
-    // mic and Deepgram transcribes it as if the user spoke.
+    // Defense-in-depth check, second layer. The primary defense against
+    // speaker bleed lives in the native AEC pipeline (`native-module/src/aec.rs`):
+    // a cross-correlation gate plus an opt-in NLMS adaptive filter drop echo
+    // mic frames before they ever reach STT. With AEC active, this function
+    // should rarely fire — but it remains as a safety net for cases where:
+    //   - The native binary is older and doesn't expose the AEC API.
+    //   - The system audio capture failed but the mic is still up
+    //     (no reference signal → AEC bus stays empty → both stages no-op).
+    //   - Speaker bleed slips past AEC thresholds (very loud playback,
+    //     unusual transfer function).
     //
-    // Earlier versions used peak RMS over a single 1.5s window, which mislabeled
-    // legitimate user speech whenever a brief system-audio spike (a notification
-    // ding, a transient interviewer syllable) coincided with quieter user speech.
-    // The fix: require *sustained* system-audio dominance — both the mean energy
-    // over the window AND the fraction of samples where sys > mic must clear
-    // their thresholds. Mean RMS is robust to transient peaks; the dominance
-    // fraction confirms it's not just one loud half-second.
+    // The energy-based detection here is fundamentally limited: it can't
+    // distinguish user speech from time-shifted echo when both have
+    // comparable RMS. Earlier versions used peak RMS over a single 1.5s
+    // window, which mislabeled legitimate user speech whenever a brief
+    // system-audio spike coincided with quieter user speech. The current
+    // logic requires *sustained* system-audio dominance — both the mean
+    // energy over the window AND the fraction of samples where sys > mic
+    // must clear their thresholds.
     const normalized = text.trim();
     if (!normalized) return false;
 
@@ -1868,6 +1900,14 @@ export class AppState {
         // LAZY INIT: Ensure pipeline is ready (if not reconfigured above)
         this.setupSystemAudioPipeline();
 
+        // Reset AEC state and enable the stage-2 engine if the user has it
+        // on. Stage 1 (cross-correlation gate) is always on inside the native
+        // module. Reset clears any reference samples or filter taps from a
+        // prior meeting — the previous session's taps modeled a different
+        // room/volume and would mistrain on the new one.
+        AecController.reset();
+        AecController.setEnabled(this.aecStage2Enabled);
+
         // Start System Audio
         this.systemAudioCapture?.start();
         this.googleSTT?.start();
@@ -1914,6 +1954,13 @@ export class AppState {
     this.googleSTT?.stop();
     this.microphoneCapture?.stop();
     this.googleSTT_User?.stop();
+
+    // Tear down AEC: disables the NLMS engine and clears the reference bus.
+    // Calling reset() between meetings ensures the next session starts with
+    // clean filter taps; calling setEnabled(false) prevents the engine from
+    // adapting on idle audio if any drips in before the next start-meeting.
+    AecController.setEnabled(false);
+    AecController.reset();
 
     // Save session state and reset context — MeetingPersistence.stopMeeting() is
     // already fire-and-forget internally (processAndSaveMeeting runs in background).

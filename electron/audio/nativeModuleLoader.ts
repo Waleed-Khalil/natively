@@ -5,6 +5,16 @@ export interface AudioDeviceInfo {
   name: string;
 }
 
+export interface AecMetricsSnapshot {
+  enabled: boolean;
+  framesProcessed: number;
+  framesSuppressedAsEcho: number;
+  lastCorrelationPeak: number;
+  lastDelayEstimateMs: number;
+  lastEchoReturnLossDb: number;
+  lastResidualRatio: number;
+}
+
 export interface NativeModule {
   getHardwareId(): string;
   verifyGumroadKey(licenseKey: string): Promise<string>;
@@ -15,6 +25,11 @@ export interface NativeModule {
   deactivateDodoKey?: (licenseKey: string, instanceId: string) => Promise<string>;
   getInputDevices(): Array<AudioDeviceInfo>;
   getOutputDevices(): Array<AudioDeviceInfo>;
+  // AEC controls — optional because they require a binary rebuild. If absent,
+  // the audio pipeline still works; only echo cancellation is disabled.
+  setAecEnabled?: (enabled: boolean) => void;
+  getAecMetrics?: () => AecMetricsSnapshot;
+  resetAecState?: () => void;
   SystemAudioCapture: new (deviceId?: string | null) => {
     getSampleRate(): number;
     start(callback: (...args: any[]) => any, onSpeechEnded?: (...args: any[]) => any): void;

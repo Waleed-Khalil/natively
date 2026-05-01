@@ -54,6 +54,44 @@ export interface AudioProcessInfo {
 }
 
 /**
+ * Snapshot of the AEC pipeline's current state and last-frame metrics.
+ * Numeric fields refer to the most recent processed mic frame; counters are
+ * session-wide and reset by `resetAecState`.
+ */
+export interface AecMetrics {
+  /** Whether the stage-2 NLMS engine is active. Stage 1 is always on. */
+  enabled: boolean
+  /** Total mic frames processed since last reset. */
+  framesProcessed: number
+  /** Subset of `framesProcessed` that were dropped as echo before STT. */
+  framesSuppressedAsEcho: number
+  /** Smoothed peak normalized cross-correlation (0–1) from the last frame. */
+  lastCorrelationPeak: number
+  /** Estimated speaker→mic delay (ms) at the last correlation peak. */
+  lastDelayEstimateMs: number
+  /** Last-frame echo return loss enhancement (dB). */
+  lastEchoReturnLossDb: number
+  /** Last-frame residual energy as a fraction of input energy (0–1). */
+  lastResidualRatio: number
+}
+
+/**
+ * Toggle the stage-2 NLMS adaptive AEC engine. Stage 1 (cross-correlation
+ * gate) is always on when reference audio is fresh and cannot be disabled.
+ */
+export declare function setAecEnabled(enabled: boolean): void
+
+/** Read the AEC pipeline's current state and last-frame metrics. */
+export declare function getAecMetrics(): AecMetrics
+
+/**
+ * Reset the AEC pipeline. Clears the reference bus, recreates the gate and
+ * (if enabled) the NLMS engine with fresh taps, and zeros all counters.
+ * Call between meetings — filter taps modeled the previous room/volume.
+ */
+export declare function resetAecState(): void
+
+/**
  * Deactivates a Dodo Payments license activation instance.
  *
  * `instance_id` — the activation instance ID (e.g. "lki_xxx") returned at activation time.

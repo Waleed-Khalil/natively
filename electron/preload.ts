@@ -112,6 +112,23 @@ interface ElectronAPI {
   onSttLanguageAutoDetected: (callback: (bcp47: string) => void) => () => void
   onSystemAudioPermissionDenied: (callback: (message: string) => void) => () => void
 
+  // Acoustic Echo Cancellation. Stage 1 (cross-correlation gate) is always on
+  // when reference audio is present; `setAecEnabled` controls only stage 2
+  // (NLMS adaptive filter). `isAecSupported` returns false when the loaded
+  // native binary predates the AEC API — UI hides the controls in that case.
+  isAecSupported: () => Promise<{ supported: boolean }>
+  getAecEnabled: () => Promise<{ enabled: boolean }>
+  setAecEnabled: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>
+  getAecMetrics: () => Promise<{
+    enabled: boolean;
+    framesProcessed: number;
+    framesSuppressedAsEcho: number;
+    lastCorrelationPeak: number;
+    lastDelayEstimateMs: number;
+    lastEchoReturnLossDb: number;
+    lastResidualRatio: number;
+  } | null>
+
   // STT Status Events
   onSttStatusChanged: (callback: (data: { state: 'connected' | 'reconnecting' | 'failed'; provider: string; error?: string; channel: 'user' | 'interviewer'; reconnectAttempts?: number }) => void) => () => void
 
@@ -695,6 +712,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on('system-audio-permission-denied', subscription);
     return () => { ipcRenderer.removeListener('system-audio-permission-denied', subscription); };
   },
+
+  // Acoustic Echo Cancellation
+  isAecSupported: () => ipcRenderer.invoke("is-aec-supported"),
+  getAecEnabled: () => ipcRenderer.invoke("get-aec-enabled"),
+  setAecEnabled: (enabled: boolean) => ipcRenderer.invoke("set-aec-enabled", enabled),
+  getAecMetrics: () => ipcRenderer.invoke("get-aec-metrics"),
 
   // STT Status Events
   onSttStatusChanged: (callback: (data: { state: 'connected' | 'reconnecting' | 'failed'; provider: string; error?: string; channel: 'user' | 'interviewer'; reconnectAttempts?: number }) => void) => {

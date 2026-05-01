@@ -574,6 +574,41 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, init
         return localStorage.getItem('enableVoiceProcessing') === 'true';
     });
 
+    // Software AEC (cross-correlation gate + NLMS filter, runs in the Rust
+    // audio pipeline). Distinct from Apple's voice processing above:
+    // - Apple AEC sits on the mic and uses the OS's idea of the reference.
+    // - Software AEC sits between the system-audio capture and the mic DSP
+    //   and uses *our* captured render signal as the reference, so it
+    //   stays accurate when we have per-process tap filters in play.
+    // Both can be on at once (and usually are — they're complementary).
+    // Default ON because the modal failure case (laptop speakers + laptop
+    // mic) is exactly what this fixes.
+    const [enableSoftwareAec, setEnableSoftwareAec] = useState<boolean>(() => {
+        const stored = localStorage.getItem('enableSoftwareAec');
+        return stored === null ? true : stored === 'true';
+    });
+    // Whether the loaded native binary supports the AEC API. Older binaries
+    // pre-date the Rust changes; the toggle is hidden in that case.
+    const [aecSupported, setAecSupported] = useState<boolean>(false);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const result = await (window as any).electronAPI?.isAecSupported?.();
+                if (!cancelled) setAecSupported(!!result?.supported);
+            } catch {
+                if (!cancelled) setAecSupported(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+    // Push the current toggle state to main on mount and on change. Main owns
+    // the truth (the native module flag); localStorage is only for hydration.
+    useEffect(() => {
+        if (!aecSupported) return;
+        (window as any).electronAPI?.setAecEnabled?.(enableSoftwareAec).catch(() => { /* non-fatal */ });
+    }, [aecSupported, enableSoftwareAec]);
+
     const [cameraSnap, setCameraSnap] = useState<boolean>(() =>
         localStorage.getItem('natively_camera_snap') !== 'false'
     );
@@ -3117,6 +3152,42 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({ isOpen, onClose, init
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* Software AEC — speaker-bleed cancellation using our captured
+                                                system audio as the reference signal. Hidden when the loaded
+                                                native binary doesn't expose the AEC API (older builds). */}
+                                            {aecSupported && (
+                                                <div className="bg-emerald-500/5 rounded-xl border border-emerald-500/20 p-4">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-start gap-3">
+                                                            <div className="mt-0.5 p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+                                                                <Mic size={18} />
+                                                            </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-2 mb-0.5">
+                                                                    <h3 className="text-sm font-bold text-text-primary">Speaker Bleed Cancellation</h3>
+                                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 uppercase tracking-wide">Smart</span>
+                                                                </div>
+                                                                <p className="text-xs text-text-secondary leading-relaxed max-w-[320px]">
+                                                                    Cross-references your microphone with the meeting audio stream to drop frames that are just speaker bleed. Independent of the Apple AEC above; both can be on. Recommended on if you don't use headphones.
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <div
+                                                            onClick={() => {
+                                                                const newState = !enableSoftwareAec;
+                                                                setEnableSoftwareAec(newState);
+                                                                window.localStorage.setItem('enableSoftwareAec', newState ? 'true' : 'false');
+                                                            }}
+                                                            className={`w-11 h-6 rounded-full relative transition-colors shrink-0 cursor-pointer ${enableSoftwareAec ? 'bg-emerald-500' : 'bg-bg-toggle-switch border border-border-muted'}`}
+                                                        >
+                                                            <div
+                                                                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform ${enableSoftwareAec ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
 
                                             {/* Camera-aware overlay placement */}
                                             <div className="bg-bg-item-surface rounded-xl border border-border-subtle p-4">

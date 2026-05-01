@@ -66,4 +66,30 @@ export function registerNativeAudioHandlers(appState: AppState): void {
     appState.setRecognitionLanguage(key);
     return { success: true };
   });
+
+  // ── Acoustic echo cancellation ────────────────────────────────────────
+  // These three handlers are deliberately small wrappers around AppState +
+  // AecController. The Settings UI uses `set-aec-enabled` to flip the
+  // stage-2 NLMS engine on or off; the in-meeting diagnostics overlay (or
+  // any tooling that wants to inspect ERLE / suppression rate) calls
+  // `get-aec-metrics` on a poll. `is-aec-supported` lets the UI hide the
+  // whole control row when the loaded native binary predates AEC.
+
+  safeHandle("set-aec-enabled", async (_evt, enabled: boolean) => {
+    appState.setAecStage2Enabled(!!enabled);
+    return { success: true, enabled: appState.isAecStage2Enabled() };
+  });
+
+  safeHandle("get-aec-enabled", async () => {
+    return { enabled: appState.isAecStage2Enabled() };
+  });
+
+  safeHandle("get-aec-metrics", async () => {
+    return appState.getAecMetrics();
+  });
+
+  safeHandle("is-aec-supported", async () => {
+    const { AecController } = require("../audio/AecController");
+    return { supported: AecController.isSupported() };
+  });
 }

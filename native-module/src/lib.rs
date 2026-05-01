@@ -12,12 +12,15 @@ use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use ringbuf::traits::Consumer;
 
+pub mod aec;
 pub mod audio_config;
+pub mod echo_reference;
 pub mod license;
 pub mod microphone;
 pub mod silence_suppression;
 pub mod speaker;
 
+use crate::aec::coordinator as aec_coordinator;
 use crate::audio_config::DSP_POLL_MS;
 use crate::silence_suppression::{FrameAction, SilenceSuppressionConfig, SilenceSuppressor};
 
@@ -179,6 +182,12 @@ impl SystemAudioCapture {
                 ..SilenceSuppressionConfig::for_system_audio()
             });
 
+            // Echo-reference bus: the AEC pipeline on the mic side reads
+            // recent system-audio samples to detect speaker bleed. Push the
+            // raw f32 batch (pre-suppression) so the reference matches what
+            // actually played through the speakers.
+            let coordinator = aec_coordinator();
+
             // 20ms chunks at native rate (e.g. 960 samples at 48kHz)
             let chunk_size = (native_rate as usize / 1000) * 20;
             let mut frame_buffer: Vec<i16> = Vec::with_capacity(chunk_size * 4);
@@ -192,6 +201,14 @@ impl SystemAudioCapture {
                 // Drain ALL available samples from ring buffer (lock-free)
                 while let Some(sample) = consumer.try_pop() {
                     raw_batch.push(sample);
+                }
+
+                // Publish to the echo-reference bus before any processing.
+                // The mic-side AEC needs the unprocessed render signal; if we
+                // ran silence suppression first, the bus would have gaps the
+                // AEC delay estimator and adaptive filter would misread.
+                if !raw_batch.is_empty() {
+                    coordinator.push_render(&raw_batch, native_rate);
                 }
 
                 // Convert f32 -> i16 at native sample rate
@@ -463,10 +480,26 @@ impl MicrophoneCapture {
                 ..SilenceSuppressionConfig::for_microphone()
             });
 
+            // AEC coordinator: every 20ms mic frame is checked for echo
+            // against the recent system-audio reference before silence
+            // suppression. Frames flagged as echo never reach STT.
+            let coordinator = aec_coordinator();
+
             // 20ms chunks at native rate
             let chunk_size = (native_rate as usize / 1000) * 20;
             let mut frame_buffer: Vec<i16> = Vec::with_capacity(chunk_size * 4);
             let mut raw_batch: Vec<f32> = Vec::with_capacity(4096);
+            // Reusable f32 view of the current i16 frame for the AEC call.
+            // Allocated once to keep the hot loop free of per-frame heap churn.
+            let mut frame_f32: Vec<f32> = Vec::with_capacity(chunk_size);
+            // Pre-allocated zero frame fed to the silence suppressor when AEC
+            // flags echo. We can't just `continue` on AEC suppression: that
+            // skips the suppressor's keepalive cadence, and 5+ seconds without
+            // a frame causes streaming STT WebSockets (Deepgram, OpenAI) to
+            // time out. Feeding zeros lets the suppressor keep emitting
+            // SendSilence at its normal interval while the actual echo audio
+            // never reaches STT.
+            let silence_frame: Vec<i16> = vec![0; chunk_size];
 
             println!("[MicrophoneCapture] DSP thread started (VAD + suppression active, rate={}Hz, chunk={})", native_rate, chunk_size);
 
@@ -493,7 +526,34 @@ impl MicrophoneCapture {
                 while frame_buffer.len() >= chunk_size {
                     let frame: Vec<i16> = frame_buffer.drain(0..chunk_size).collect();
 
-                    let (action, speech_ended) = suppressor.process(&frame);
+                    // ── AEC stage ────────────────────────────────────────
+                    // Convert i16 → f32 once for the AEC call. The
+                    // coordinator decimates internally to 16 kHz; we hand it
+                    // native-rate samples so the gate's lag math stays in
+                    // wall-clock time without us having to track rate
+                    // conversions out here.
+                    frame_f32.clear();
+                    frame_f32.extend(frame.iter().map(|&s| s as f32 / 32768.0));
+                    let metrics = coordinator.process_capture(&frame_f32, native_rate);
+
+                    // Feed the suppressor either the real frame or a silent
+                    // stand-in. AEC-flagged frames go through as silence so:
+                    //  1. The suppressor's state machine ticks correctly
+                    //     (timing-continuity for STT keepalives is preserved
+                    //     even during multi-second sustained echo).
+                    //  2. STT receives only zero-valued audio for the
+                    //     suppressed period, never the actual echo waveform.
+                    //  3. The adaptive noise-floor EMA may drift toward zero
+                    //     during long echo bursts, but the
+                    //     `adaptive_min_floor` clamp (20.0) keeps the
+                    //     threshold sane for the next real frame.
+                    let frame_for_suppressor: &[i16] = if metrics.suppress_as_echo {
+                        &silence_frame
+                    } else {
+                        &frame
+                    };
+
+                    let (action, speech_ended) = suppressor.process(frame_for_suppressor);
 
                     match action {
                         FrameAction::Send(data) => {
@@ -583,4 +643,78 @@ pub fn get_output_devices() -> Vec<AudioDeviceInfo> {
             Vec::new()
         }
     }
+}
+
+// ============================================================================
+// ACOUSTIC ECHO CANCELLATION (AEC) — controls + metrics
+//
+// The AEC pipeline (cross-correlation gate + NLMS adaptive filter) is wired
+// into the system-audio and microphone DSP loops above. The gate runs
+// whenever the echo-reference bus is fresh; the NLMS engine is opt-in via
+// `setAecEnabled`. JS reads `getAecMetrics` to surface diagnostics in the UI.
+// ============================================================================
+
+/// Snapshot of the AEC pipeline's current state and counters.
+/// All numeric fields refer to the most recent processed mic frame; counters
+/// are session-wide (reset by `resetAecState`).
+#[napi(object)]
+pub struct AecMetrics {
+    /// Whether the stage-2 NLMS engine is active. Stage 1 (cross-correlation
+    /// gate) is always on when reference audio is fresh.
+    pub enabled: bool,
+    /// Total mic frames processed since last reset.
+    pub frames_processed: f64,
+    /// Subset of `frames_processed` that were dropped as echo before STT.
+    pub frames_suppressed_as_echo: f64,
+    /// Smoothed peak normalized cross-correlation (0–1) from the last frame.
+    pub last_correlation_peak: f64,
+    /// Estimated speaker→mic delay (ms) at the last correlation peak.
+    pub last_delay_estimate_ms: f64,
+    /// Last-frame echo return loss enhancement (dB). Larger = better
+    /// cancellation. Only meaningful when `enabled` is true.
+    pub last_echo_return_loss_db: f64,
+    /// Last-frame residual energy as a fraction of input energy (0–1).
+    /// Only meaningful when `enabled` is true.
+    pub last_residual_ratio: f64,
+}
+
+/// Toggle the stage-2 NLMS adaptive AEC engine.
+///
+/// When true, the mic DSP loop runs an adaptive filter against the system
+/// audio reference and uses combined (correlation + ERLE) criteria to drop
+/// echo frames. When false, only the always-on cross-correlation gate runs.
+///
+/// Stage 1 (gate) is permanent — there is no setting to disable it because
+/// it costs essentially nothing and never hurts. Stage 2 is toggleable
+/// because the NLMS filter consumes more CPU and a future user might want
+/// to disable it for power reasons or A/B testing.
+#[napi]
+pub fn set_aec_enabled(enabled: bool) {
+    aec::coordinator().set_aec_enabled(enabled);
+}
+
+/// Read the AEC pipeline's current state and last-frame metrics.
+#[napi]
+pub fn get_aec_metrics() -> AecMetrics {
+    let snap = aec::coordinator().snapshot_metrics();
+    AecMetrics {
+        enabled: snap.enabled,
+        // f64 cast: NAPI doesn't have a u64 type; counters reset before they
+        // could exceed f64's exact-integer range (2^53) so this is lossless.
+        frames_processed: snap.frames_processed as f64,
+        frames_suppressed_as_echo: snap.frames_suppressed_as_echo as f64,
+        last_correlation_peak: snap.last_correlation_peak as f64,
+        last_delay_estimate_ms: snap.last_delay_estimate_ms as f64,
+        last_echo_return_loss_db: snap.last_echo_return_loss_db as f64,
+        last_residual_ratio: snap.last_residual_ratio as f64,
+    }
+}
+
+/// Reset the AEC pipeline. Clears the reference bus, recreates the gate and
+/// (if enabled) the NLMS engine with fresh taps, and zeros all counters.
+/// Called between meetings — the previous session's filter taps modeled a
+/// specific room/volume configuration and would mistrain on a new one.
+#[napi]
+pub fn reset_aec_state() {
+    aec::coordinator().reset();
 }
