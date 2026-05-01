@@ -35,6 +35,16 @@ npm run simulate:interview
 
 Gemini is the cheapest/fastest provider for iterating on prompts. Claude or GPT-4 will give you higher-fidelity responses to evaluate behavior.
 
+The runner picks a default model based on which key you exported (Gemini Flash if Gemini is set, else Claude Sonnet, else Groq Llama, else GPT). Override with `SIMULATE_MODEL`:
+
+```bash
+export CLAUDE_API_KEY=...
+export SIMULATE_MODEL=claude-haiku   # cheaper Claude
+npm run simulate:interview
+```
+
+Recognized values follow `LLMHelper.setModel()`: `gemini` (Flash), `gemini-pro`, `claude` (Sonnet), `claude-haiku`, `llama`, `gpt-5.4`, or any concrete model ID.
+
 ## Scenario format
 
 Scenarios live in `scenarios/*.json`. Each is a sequence of **turns**, where every turn is either a transcript line or a scheduled action invocation.

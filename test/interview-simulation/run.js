@@ -313,6 +313,21 @@ async function main() {
     }
 
     const llmHelper = new LLMHelper(keys.gemini, false, undefined, undefined, keys.groq, keys.openai, keys.claude);
+
+    // LLMHelper defaults to Gemini Flash. If the user only has a non-Gemini
+    // key, route to a model their key can actually serve. SIMULATE_MODEL
+    // overrides everything.
+    let modelChoice = process.env.SIMULATE_MODEL;
+    if (!modelChoice) {
+        if (keys.gemini)       modelChoice = null; // keep default Gemini Flash
+        else if (keys.claude)  modelChoice = 'claude';
+        else if (keys.groq)    modelChoice = 'llama';
+        else if (keys.openai)  modelChoice = 'gpt-5.4';
+    }
+    if (modelChoice) {
+        llmHelper.setModel(modelChoice, []);
+    }
+
     const providerLabel = llmHelper.getCurrentProvider
         ? `${llmHelper.getCurrentProvider()} / ${llmHelper.getCurrentModel?.() || 'unknown'}`
         : 'unknown';
