@@ -1,5 +1,5 @@
 import { LLMHelper } from "../LLMHelper";
-import { UNIVERSAL_ANSWER_PROMPT } from "./prompts";
+import { buildAnswerPrompt } from "./prompts";
 
 export class AnswerLLM {
     private llmHelper: LLMHelper;
@@ -9,13 +9,12 @@ export class AnswerLLM {
     }
 
     /**
-     * Generate a spoken interview answer
+     * Generate a spoken interview / meeting answer.
      */
     async generate(question: string, context?: string): Promise<string> {
         try {
-            // Use LLMHelper's streamChat but collect all tokens since this method is non-streaming
-            // We use UNIVERSAL_ANSWER_PROMPT as override
-            const stream = this.llmHelper.streamChat(question, undefined, context, UNIVERSAL_ANSWER_PROMPT);
+            const systemPrompt = buildAnswerPrompt(this.llmHelper.getPromptContext());
+            const stream = this.llmHelper.streamChat(question, undefined, context, systemPrompt);
 
             let fullResponse = "";
             for await (const chunk of stream) {

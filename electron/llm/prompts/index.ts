@@ -5,19 +5,10 @@
  * `PromptContext` (framing + provider + optional voice/temporal/notes) and
  * returns the final system prompt string.
  *
- * Migration status — actions migrated to compositional builders:
- *   ✓ clarify
- *   ✓ recap
- *   ✓ followUp (refinement)
- *   ✓ followUpQuestions
- *   – brainstorm        (still uses BRAINSTORM_MODE_PROMPT directly)
- *   – whatToAnswer      (still uses WHAT_TO_ANSWER_PROMPT family)
- *   – assist            (still uses ASSIST_MODE_PROMPT)
- *   – answer            (still uses ANSWER_MODE_PROMPT family)
- *   – codeHint          (still uses CODE_HINT_PROMPT)
- *
- * As actions migrate, the corresponding legacy `*_MODE_PROMPT` and
- * `{CLAUDE,GROQ,OPENAI}_*` constants in prompts.ts will be deleted.
+ * All nine action types now go through the compositional path. The legacy
+ * per-action × per-provider string constants in prompts.ts (CLAUDE_*,
+ * GROQ_*, OPENAI_*, UNIVERSAL_*, CUSTOM_*) are slated for cleanup once all
+ * downstream callers are migrated.
  */
 
 export type { PromptContext, Framing, Provider } from './types';
@@ -29,3 +20,8 @@ export { buildClarifyPrompt } from './actions/clarify';
 export { buildRecapPrompt } from './actions/recap';
 export { buildFollowUpPrompt } from './actions/followUp';
 export { buildFollowUpQuestionsPrompt } from './actions/followUpQuestions';
+export { buildBrainstormPrompt } from './actions/brainstorm';
+export { buildWhatToAnswerPrompt } from './actions/whatToAnswer';
+export { buildAssistPrompt } from './actions/assist';
+export { buildAnswerPrompt } from './actions/answer';
+export { buildCodeHintPrompt } from './actions/codeHint';

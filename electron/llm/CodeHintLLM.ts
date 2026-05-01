@@ -1,5 +1,6 @@
 import { LLMHelper } from "../LLMHelper";
-import { CODE_HINT_PROMPT, buildCodeHintMessage } from "./prompts";
+import { buildCodeHintPrompt } from "./prompts";
+import { buildCodeHintMessage } from "./prompts";
 
 export class CodeHintLLM {
     private llmHelper: LLMHelper;
@@ -15,6 +16,7 @@ export class CodeHintLLM {
         transcriptContext?: string
     ): AsyncGenerator<string> {
         try {
+            const systemPrompt = buildCodeHintPrompt(this.llmHelper.getPromptContext());
             const message = buildCodeHintMessage(
                 questionContext ?? null,
                 questionSource ?? null,
@@ -25,7 +27,7 @@ export class CodeHintLLM {
                 message,
                 imagePaths,
                 undefined,
-                CODE_HINT_PROMPT
+                systemPrompt
             );
         } catch (error) {
             console.error("[CodeHintLLM] Stream failed:", error);

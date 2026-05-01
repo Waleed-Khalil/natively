@@ -4,7 +4,7 @@
 // Uses LLMHelper for centralized routing and universal prompts
 
 import { LLMHelper } from "../LLMHelper";
-import { UNIVERSAL_ASSIST_PROMPT } from "./prompts";
+import { buildAssistPrompt } from "./prompts";
 
 export class AssistLLM {
     private llmHelper: LLMHelper;
@@ -24,15 +24,14 @@ export class AssistLLM {
                 return "";
             }
 
-            // Centralized LLM logic
-            // providing a specific instruction as message, using UNIVERSAL_ASSIST_PROMPT as system prompt
+            const systemPrompt = buildAssistPrompt(this.llmHelper.getPromptContext());
             const instruction = "Briefly summarize what is happening right now in 1-2 sentences. Do not give advice, just observation.";
 
             return await this.llmHelper.chat(
                 instruction,
                 undefined, // no image
                 context,
-                UNIVERSAL_ASSIST_PROMPT
+                systemPrompt
             );
 
         } catch (error) {

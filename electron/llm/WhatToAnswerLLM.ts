@@ -1,5 +1,5 @@
 import { LLMHelper } from "../LLMHelper";
-import { UNIVERSAL_WHAT_TO_ANSWER_PROMPT, PERSPECTIVE_LOCK } from "./prompts";
+import { buildWhatToAnswerPrompt, PERSPECTIVE_LOCK } from "./prompts";
 import { TemporalContext } from "./TemporalContextBuilder";
 import { IntentResult } from "./IntentClassifier";
 import type { ConversationRegister } from "../SessionTracker";
@@ -117,11 +117,8 @@ ${isTechnical ? `\nCRITICAL: This is a PURE TECHNICAL question. ABSOLUTE RULES:\
                 ? `${PERSPECTIVE_LOCK}\n\n${baseMessage}`
                 : baseMessage;
 
-            // Use Universal Prompt
-            // Note: WhatToAnswer has a very specific prompt. 
-            // We should use UNIVERSAL_WHAT_TO_ANSWER_PROMPT as override
-
-            yield* this.llmHelper.streamChat(fullMessage, imagePaths, undefined, UNIVERSAL_WHAT_TO_ANSWER_PROMPT);
+            const systemPrompt = buildWhatToAnswerPrompt(this.llmHelper.getPromptContext());
+            yield* this.llmHelper.streamChat(fullMessage, imagePaths, undefined, systemPrompt);
 
         } catch (error) {
             console.error("[WhatToAnswerLLM] Stream failed:", error);
