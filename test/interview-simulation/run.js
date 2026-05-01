@@ -98,10 +98,35 @@ function loadScenario(file) {
 function nowMs() { return Date.now(); }
 function fmtMs(ms) { return `${(ms / 1000).toFixed(2)}s`; }
 
+// Pattern-match the fallback strings each LLM sub-class returns when its
+// upstream call fails (rate limit, network, etc.). Per-class strings live
+// in electron/llm/*LLM.ts. These are deliberately user-facing, so changing
+// them in app code requires updating this list.
+const SILENT_FAILURE_PATTERNS = [
+    /^Could you repeat that\?/i,
+    /^I couldn't analyze/i,
+    /^I couldn't generate/i,
+    /Make sure your (code|question) is visible/i,
+];
+
+function looksLikeSilentFailure(result) {
+    if (typeof result !== 'string' || !result.trim()) return false;
+    return SILENT_FAILURE_PATTERNS.some(p => p.test(result.trim()));
+}
+
 async function runAction(im, action, label) {
     const start = nowMs();
     let result;
     let error = null;
+
+    // IntelligenceEngine emits 'error' for upstream failures rather than
+    // letting them bubble — capture them so the report doesn't claim success.
+    const capturedEngineErrors = [];
+    const onError = (err /*, mode */) => {
+        capturedEngineErrors.push(err);
+    };
+    im.on('error', onError);
+
     try {
         switch (action.action) {
             case 'assist':              result = await im.runAssistMode(); break;
@@ -118,7 +143,19 @@ async function runAction(im, action, label) {
         }
     } catch (err) {
         error = err;
+    } finally {
+        im.off('error', onError);
     }
+
+    // If the call didn't throw but the engine emitted an error event, OR the
+    // result matches a known fallback string, treat it as a silent failure.
+    if (!error && capturedEngineErrors.length > 0) {
+        error = capturedEngineErrors[0];
+    }
+    if (!error && looksLikeSilentFailure(result)) {
+        error = new Error(`Silent fallback response: "${String(result).slice(0, 120)}"`);
+    }
+
     const elapsed = nowMs() - start;
     return { result, error, elapsed, label: label || action.label || null };
 }
@@ -165,7 +202,10 @@ async function runScenario(scenario, im) {
                 label:   turn.label || null,
                 intent:  turn.intent || null,
                 elapsed: out.elapsed,
-                result:  out.error ? null : out.result,
+                // Keep the result alongside the error so the report can show
+                // the silent-fallback text the AI returned (e.g. "Could you
+                // repeat that?") while still flagging the action as failed.
+                result:  out.result ?? null,
                 error:   out.error ? out.error.message : null,
             });
             continue;
@@ -224,6 +264,14 @@ function renderReport(scenario, trace, meta) {
             if (entry.error) {
                 errorCount++;
                 out.push(`**❌ Error:** \`${entry.error}\``);
+                if (entry.result) {
+                    out.push('');
+                    out.push('**Fallback response shown to user:**');
+                    out.push('');
+                    out.push('```');
+                    out.push(typeof entry.result === 'string' ? entry.result : JSON.stringify(entry.result));
+                    out.push('```');
+                }
             } else if (entry.result == null || entry.result === '') {
                 out.push('**Response:** _(empty)_');
             } else if (typeof entry.result === 'string') {
@@ -324,15 +372,17 @@ async function main() {
 
     const llmHelper = new LLMHelper(keys.gemini, false, undefined, undefined, keys.groq, keys.openai, keys.claude);
 
-    // LLMHelper defaults to Gemini Flash. If the user only has a non-Gemini
-    // key, route to a model their key can actually serve. SIMULATE_MODEL
-    // overrides everything.
+    // LLMHelper defaults to Gemini Flash. Prefer the higher-fidelity
+    // provider when multiple keys are available — users who set Claude or
+    // GPT keys almost always intend to use them; Gemini free-tier quota
+    // depletion is a common silent failure mode otherwise.
+    // SIMULATE_MODEL overrides for explicit selection.
     let modelChoice = process.env.SIMULATE_MODEL;
     if (!modelChoice) {
-        if (keys.gemini)       modelChoice = null; // keep default Gemini Flash
-        else if (keys.claude)  modelChoice = 'claude';
-        else if (keys.groq)    modelChoice = 'llama';
+        if (keys.claude)       modelChoice = 'claude';
         else if (keys.openai)  modelChoice = 'gpt-5.4';
+        else if (keys.gemini)  modelChoice = null; // default is already Gemini Flash
+        else if (keys.groq)    modelChoice = 'llama';
     }
     if (modelChoice) {
         llmHelper.setModel(modelChoice, []);
