@@ -34,25 +34,39 @@
       "turn": 2,
       "no_error": true,
       "min_length": 80,
-      "must_not_match": ["machine learning engineer", "data pipelines", "data scientist"],
-      "reason": "Opener must produce a substantive answer grounded in YOUR profile, not a default ML/data persona"
+      "reason": "Opener must produce a substantive answer (≥80 chars). Persona is whatever YOUR real profile says — we don't assert specific keywords because that depends on your actual background."
+    },
+    {
+      "turn": 4,
+      "no_error": true,
+      "min_length": 100,
+      "min_elapsed_ms": 500,
+      "reason": "what_to_say on the technical-challenge question must produce real content (cooldown regression guard)"
     },
     {
       "turn": 5,
-      "min_elapsed_ms": 500,
       "no_error": true,
-      "reason": "Back-to-back what_to_say should not silently no-op (cooldown bug regression check)"
+      "min_length": 80,
+      "reason": "follow_up refinement should return refined content, not silently no-op"
     },
     {
-      "turn": 8,
+      "turn": 7,
+      "no_error": true,
       "must_match": "\\[your |\\[the |\\[an? ",
-      "must_not_match": ["^we had a", "^the worst one I dealt with"],
-      "reason": "Brainstorm must scaffold with placeholders — never invent a finished story"
+      "must_not_match": ["^we had a", "^the worst one I dealt with", "^honestly, the worst"],
+      "reason": "Brainstorm on a behavioral question must scaffold with placeholders — guards against the fabrication regression"
     },
     {
-      "turn": 10,
+      "turn": 9,
+      "no_error": true,
       "must_match": "\\?\\s*$",
-      "reason": "Clarify must produce a question (ends with ?), never an answer"
+      "reason": "Clarify must produce a question (ends with ?) — guards against the falls-through-to-answer regression"
+    },
+    {
+      "turn": 16,
+      "no_error": true,
+      "min_length": 200,
+      "reason": "Recap should be substantive — at least 200 characters of factual summary"
     }
   ]
 }

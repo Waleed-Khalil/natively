@@ -33,14 +33,18 @@ npm run simulate:interview
 
 **Why not the saved keys from the app?** CredentialsManager uses Electron's `safeStorage`, which only works inside a full Electron app runtime. The simulator runs in CLI mode (`ELECTRON_RUN_AS_NODE=1`) where `safeStorage` isn't available, so it can't decrypt them. Easiest path is to export the same key you have saved in the app.
 
-Gemini is the cheapest/fastest provider for iterating on prompts. Claude or GPT-4 will give you higher-fidelity responses to evaluate behavior.
-
-The runner picks a default model based on which key you exported (Gemini Flash if Gemini is set, else Claude Sonnet, else Groq Llama, else GPT). Override with `SIMULATE_MODEL`:
+The runner picks a **fast, cheap variant** by default since test runs are repetitive — Claude Haiku if a Claude key is set, otherwise Gemini Flash, etc. Bump to higher-fidelity for deeper evaluation via `SIMULATE_MODEL`:
 
 ```bash
-export CLAUDE_API_KEY=...
-export SIMULATE_MODEL=claude-haiku   # cheaper Claude
+# Default: claude-haiku-4-5 (cheap + fast for iterating on prompts)
 npm run simulate:interview
+
+# Override to Sonnet for higher-fidelity behavior eval
+SIMULATE_MODEL=claude npm run simulate:interview
+
+# Or other options
+SIMULATE_MODEL=gemini-pro npm run simulate:interview
+SIMULATE_MODEL=gpt-5.4 npm run simulate:interview
 ```
 
 Recognized values follow `LLMHelper.setModel()`: `gemini` (Flash), `gemini-pro`, `claude` (Sonnet), `claude-haiku`, `llama`, `gpt-5.4`, or any concrete model ID.

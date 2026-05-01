@@ -120,20 +120,24 @@ function loadUserProfileData() {
 
     let voiceLoaded = false;
     let voiceMeetings = 0;
+    let voiceExcerpts = 0;
     if (fs.existsSync(voicePath)) {
         try {
             const vp = JSON.parse(fs.readFileSync(voicePath, 'utf8'));
             voiceLoaded = true;
-            voiceMeetings = vp?.metadata?.sampledMeetings ?? vp?.sampledMeetings ?? 0;
+            // VoiceProfile schema: { sampleCount, excerpts: string[], ... }
+            voiceMeetings = vp?.sampleCount ?? 0;
+            voiceExcerpts = Array.isArray(vp?.excerpts) ? vp.excerpts.length : 0;
         } catch { /* ignore */ }
     }
 
     if (!profileRow && !voiceLoaded) return null;
     return {
-        intro:   profileRow?.intro_interview || profileRow?.intro_short || null,
-        persona: profileRow?.compact_persona || null,
+        intro:    profileRow?.intro_interview || profileRow?.intro_short || null,
+        persona:  profileRow?.compact_persona || null,
         voiceLoaded,
         voiceMeetings,
+        voiceExcerpts,
     };
 }
 
@@ -243,11 +247,14 @@ async function runScenario(scenario, im) {
         const profile = loadUserProfileData();
         if (profile) {
             const profilePriming = buildPrimingFromUserProfile(profile);
+            const voiceLabel = profile.voiceLoaded
+                ? `voice profile loaded (${profile.voiceMeetings} meetings, ${profile.voiceExcerpts} excerpts)`
+                : 'voice profile not built yet';
             if (profilePriming.length > 0) {
-                console.log(`  [priming] using real user profile data (${profilePriming.length} turn(s)) — voice profile ${profile.voiceLoaded ? `loaded (${profile.voiceMeetings} meetings)` : 'not built yet'}`);
+                console.log(`  [priming] using real user profile data (${profilePriming.length} turn(s)) — ${voiceLabel}`);
                 priming = profilePriming.concat(priming);
             } else if (profile.voiceLoaded) {
-                console.log(`  [priming] voice profile loaded (${profile.voiceMeetings} meetings) — no resume/intro in user_profile table; relying on voice profile alone`);
+                console.log(`  [priming] ${voiceLabel} — no resume/intro in user_profile table; relying on voice profile alone`);
             }
         } else {
             console.warn('  [priming] useUserProfile requested but no user_profile row or voice_profile.json found — run the app and upload a resume in Settings → Profile first');
@@ -599,14 +606,17 @@ async function main() {
 
     const llmHelper = new LLMHelper(keys.gemini, false, undefined, undefined, keys.groq, keys.openai, keys.claude);
 
-    // LLMHelper defaults to Gemini Flash. Prefer the higher-fidelity
-    // provider when multiple keys are available — users who set Claude or
-    // GPT keys almost always intend to use them; Gemini free-tier quota
-    // depletion is a common silent failure mode otherwise.
-    // SIMULATE_MODEL overrides for explicit selection.
+    // Default to the cheapest/fastest variant of whichever provider key is
+    // present. Test runs are repetitive — Haiku for Claude and Flash for
+    // Gemini are the right "fast prompt-iteration" defaults. Bump to Sonnet
+    // (or another model) via SIMULATE_MODEL when you want higher-fidelity
+    // evaluation, e.g.:
+    //   SIMULATE_MODEL=claude   (Sonnet)
+    //   SIMULATE_MODEL=gemini-pro
+    //   SIMULATE_MODEL=gpt-5.4
     let modelChoice = process.env.SIMULATE_MODEL;
     if (!modelChoice) {
-        if (keys.claude)       modelChoice = 'claude';
+        if (keys.claude)       modelChoice = 'claude-haiku';
         else if (keys.openai)  modelChoice = 'gpt-5.4';
         else if (keys.gemini)  modelChoice = null; // default is already Gemini Flash
         else if (keys.groq)    modelChoice = 'llama';
