@@ -74,14 +74,11 @@ export class RateLimiter {
 }
 
 /**
- * Pre-configured rate limiters for known providers.
- * These match documented free-tier limits.
+ * Pre-configured rate limiters for known providers. Claude is the only chat
+ * LLM provider — non-Claude entries removed.
  */
 export function createProviderRateLimiters() {
     return {
-        groq: new RateLimiter(6, 0.1),        // 6 req/min
-        gemini: new RateLimiter(120, 2.0),    // 120 req/min
-        openai: new RateLimiter(120, 2.0),    // 120 req/min
         claude: new RateLimiter(120, 2.0),    // 120 req/min
     };
 }

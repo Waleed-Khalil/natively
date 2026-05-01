@@ -52,31 +52,24 @@ function loadCompiledModules() {
 
 function readApiKeys() {
     const env = {
-        gemini: process.env.GEMINI_API_KEY,
-        groq:   process.env.GROQ_API_KEY,
-        openai: process.env.OPENAI_API_KEY,
         claude: process.env.CLAUDE_API_KEY,
     };
 
-    if (env.gemini || env.groq || env.openai || env.claude) {
-        const set = ['gemini', 'groq', 'openai', 'claude'].filter(k => env[k]);
-        console.log(`[interview-sim] using API keys from environment: ${set.join(', ')}`);
+    if (env.claude) {
+        console.log('[interview-sim] using CLAUDE_API_KEY from environment');
         return env;
     }
 
     // CredentialsManager uses Electron's safeStorage, which only works inside a
     // real Electron app context. Under ELECTRON_RUN_AS_NODE=1 there's no app
     // lifecycle, so safeStorage isn't available and decryption fails. Asking
-    // the user to set env vars is the simplest workable path.
+    // the user to set CLAUDE_API_KEY is the simplest workable path.
     console.error('');
-    console.error('[interview-sim] No API keys found in environment.');
+    console.error('[interview-sim] CLAUDE_API_KEY not set.');
     console.error('');
-    console.error('  CredentialsManager (the keys saved in the app) needs Electron\'s');
-    console.error('  safeStorage, which doesn\'t work in CLI mode. Export at least one');
-    console.error('  provider key before re-running:');
+    console.error('  Export the key before re-running:');
     console.error('');
-    console.error('    export GEMINI_API_KEY=...');
-    console.error('    # or GROQ_API_KEY / OPENAI_API_KEY / CLAUDE_API_KEY');
+    console.error('    export CLAUDE_API_KEY=sk-ant-...');
     console.error('');
     console.error('  Then: npm run simulate:interview -- <scenario-name>');
     console.error('');
@@ -599,31 +592,18 @@ async function main() {
     const { LLMHelper, IntelligenceManager } = loadCompiledModules();
     const keys = readApiKeys();
 
-    if (!keys.gemini && !keys.groq && !keys.openai && !keys.claude) {
-        console.error('[interview-sim] No API keys available. Set at least one of GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, CLAUDE_API_KEY.');
+    if (!keys.claude) {
+        console.error('[interview-sim] CLAUDE_API_KEY is required.');
         process.exit(1);
     }
 
-    const llmHelper = new LLMHelper(keys.gemini, false, undefined, undefined, keys.groq, keys.openai, keys.claude);
+    const llmHelper = new LLMHelper(keys.claude);
 
-    // Default to the cheapest/fastest variant of whichever provider key is
-    // present. Test runs are repetitive — Haiku for Claude and Flash for
-    // Gemini are the right "fast prompt-iteration" defaults. Bump to Sonnet
-    // (or another model) via SIMULATE_MODEL when you want higher-fidelity
-    // evaluation, e.g.:
-    //   SIMULATE_MODEL=claude   (Sonnet)
-    //   SIMULATE_MODEL=gemini-pro
-    //   SIMULATE_MODEL=gpt-5.4
-    let modelChoice = process.env.SIMULATE_MODEL;
-    if (!modelChoice) {
-        if (keys.claude)       modelChoice = 'claude-haiku';
-        else if (keys.openai)  modelChoice = 'gpt-5.4';
-        else if (keys.gemini)  modelChoice = null; // default is already Gemini Flash
-        else if (keys.groq)    modelChoice = 'llama';
-    }
-    if (modelChoice) {
-        llmHelper.setModel(modelChoice, []);
-    }
+    // Default to Claude Haiku for cheap/fast prompt iteration. Override with
+    // SIMULATE_MODEL=claude (Sonnet) or any specific Claude model id for
+    // higher-fidelity evaluation.
+    const modelChoice = process.env.SIMULATE_MODEL || 'claude-haiku';
+    llmHelper.setModel(modelChoice);
 
     const providerLabel = llmHelper.getCurrentProvider
         ? `${llmHelper.getCurrentProvider()} / ${llmHelper.getCurrentModel?.() || 'unknown'}`
