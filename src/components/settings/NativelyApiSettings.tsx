@@ -3,7 +3,7 @@ import {
     CheckCircle, AlertCircle,
     Mic, Brain, Search, Shield, Loader2,
     RefreshCw, CalendarClock, Trash2, ArrowUpRight, Info,
-    Zap, Clock, Sparkles
+    Zap, Clock
 } from 'lucide-react';
 import { NativelyLogoMark } from '../NativelyLogoMark';
 import { FreeTrialModal } from '../trial/FreeTrialModal';
