@@ -79,6 +79,51 @@ These turns are pushed into the transcript with timestamps an hour before turn 1
 
 **Why this matters:** `WhatToAnswerLLM` grounds on transcript history plus your on-disk `CandidateVoiceProfile`. With zero prior turns and a thin profile, it tends to confabulate a generic persona on the opener (we caught it inventing an "ML infrastructure" background for a Go fintech candidate). Priming gives it real anchor text to reference.
 
+### Using your real persona (`useUserProfile`)
+
+A scenario can set `"useUserProfile": true` instead of (or in addition to) hardcoded `priming`. The runner will pull two sources of real persona data and synthesize priming from them:
+
+- **`user_profile.intro_interview` / `compact_persona`** from the local SQLite DB. This is the parsed-resume self-description populated by **Settings → Profile → Upload Resume** in the app. The runner reads it read-only and uses `intro_interview` as the answer to "tell me about yourself" anchor and `compact_persona` as additional grounding.
+- **`voice_profile.json`** in your `userData` directory, built from your past meetings via `npm run voice-profile:build`. The runner doesn't read it directly — `CandidateVoiceProfile.getInstance()` does, automatically, because `WhatToAnswerLLM` already consults it to anchor the candidate's speaking style.
+
+If neither is set up, the runner warns and falls back to whatever `priming` block the scenario also defines.
+
+`scenarios/self-profile.json` uses `useUserProfile: true` and is the right place to evaluate "how does the AI represent ME specifically" rather than a fictional persona.
+
+### Expectations / regression checks
+
+A scenario can include an `expectations` array. After the run, each expectation is evaluated against the trace; failures appear in an Expectations section in the report and bump the runner's exit code to 1 (so this can gate CI).
+
+```json
+{
+  "expectations": [
+    {
+      "turn": 12,
+      "must_not_match": ["^we had a", "the worst one I dealt with"],
+      "must_match": "\\[your ",
+      "reason": "Brainstorm must scaffold with placeholders, never fabricate a story"
+    },
+    {
+      "turn": 5,
+      "min_elapsed_ms": 500,
+      "min_length": 100,
+      "no_error": true,
+      "reason": "what_to_say must not silently no-op (cooldown regression)"
+    }
+  ]
+}
+```
+
+`turn` is 1-based to match the report numbering. Supported rule keys:
+
+- `must_match` — string regex OR array of regexes; **all** must match the result (case-insensitive)
+- `must_not_match` — string regex OR array; **none** may match
+- `min_length` / `max_length` — character bounds on the result string
+- `min_elapsed_ms` — guards against silent no-ops (e.g. cooldown bugs that return null in 0ms)
+- `no_error` — `true` requires the action to have completed without an engine error or silent fallback
+
+`reason` is human-readable and shows in the report next to the pass/fail icon. Use it to name the regression you're guarding against — when an expectation fails six months from now, future-you should know exactly what bug it was meant to catch.
+
 ### Turn shapes
 
 **Transcript turn** — gets fed into `IntelligenceManager.addTranscript()`:

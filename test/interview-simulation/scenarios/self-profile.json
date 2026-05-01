@@ -1,0 +1,58 @@
+{
+  "name": "Self-Interview — Your Real Persona",
+  "description": "Drives the simulation against the user's actual loaded persona-intelligence-layer data (resume parsed into the user_profile SQLite table, plus the candidate voice profile built from past meetings). Use this scenario to evaluate how the AI responds when asked questions about YOU — not a fictional candidate.",
+  "useUserProfile": true,
+  "context": {
+    "note": "Priming for this scenario is generated at runtime from your local user_profile.intro_interview / compact_persona and your voice_profile.json. Make sure you've uploaded a resume in the app (Settings → Profile) and run voice-profile:build for best results."
+  },
+  "turns": [
+    { "speaker": "interviewer", "text": "Hi, thanks for taking the time. Let's start broad — tell me about yourself and what you've been working on lately." },
+    { "action": "what_to_say", "label": "Opener — should anchor on YOUR real role and specialty, not a generic persona" },
+
+    { "speaker": "interviewer", "text": "What would you say is the most technically challenging project you've worked on in the last year or two?" },
+    { "action": "what_to_say", "label": "Should reference real experience from your profile, not invented work" },
+    { "action": "follow_up", "intent": "add_example", "label": "Refine — should add a concrete example from your background, not a fabricated one" },
+
+    { "speaker": "interviewer", "text": "Walk me through a time you had to make a hard technical or product trade-off." },
+    { "action": "brainstorm", "label": "Behavioral framing — should give angles with placeholders, not invent a story" },
+
+    { "speaker": "interviewer", "text": "Actually, before you answer that — let me re-frame. What I'm really after is how you make decisions under ambiguity. So however you want to take it." },
+    { "action": "clarify", "label": "Interviewer just narrowed scope — clarify should produce a question, not an answer" },
+
+    { "speaker": "interviewer", "text": "Sure, take your time. Whichever direction works." },
+    { "action": "what_to_say" },
+
+    { "speaker": "interviewer", "text": "Last question — do you have any questions for me?" },
+    { "action": "follow_up_questions", "label": "Should produce 3 sharp conversation-specific questions" },
+
+    { "speaker": "user", "text": "Yeah — what does ramp-up look like for someone coming in at this level, and how does the team think about pairing on technical decisions?" },
+    { "speaker": "interviewer", "text": "Good questions. Ramp is usually about 60 days with a buddy. Technical decisions go through a lightweight RFC process — async-first." },
+    { "action": "recap", "label": "Recap should be factual to this conversation, not template-y" }
+  ],
+  "expectations": [
+    {
+      "turn": 2,
+      "no_error": true,
+      "min_length": 80,
+      "must_not_match": ["machine learning engineer", "data pipelines", "data scientist"],
+      "reason": "Opener must produce a substantive answer grounded in YOUR profile, not a default ML/data persona"
+    },
+    {
+      "turn": 5,
+      "min_elapsed_ms": 500,
+      "no_error": true,
+      "reason": "Back-to-back what_to_say should not silently no-op (cooldown bug regression check)"
+    },
+    {
+      "turn": 8,
+      "must_match": "\\[your |\\[the |\\[an? ",
+      "must_not_match": ["^we had a", "^the worst one I dealt with"],
+      "reason": "Brainstorm must scaffold with placeholders — never invent a finished story"
+    },
+    {
+      "turn": 10,
+      "must_match": "\\?\\s*$",
+      "reason": "Clarify must produce a question (ends with ?), never an answer"
+    }
+  ]
+}

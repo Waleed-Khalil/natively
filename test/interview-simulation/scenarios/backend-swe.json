@@ -33,5 +33,34 @@
     { "speaker": "user", "text": "Yeah — what does the team's on-call rotation look like, and how does Stripe think about the trade-off between async messaging and synchronous APIs for internal services?" },
     { "speaker": "interviewer", "text": "Great questions. We do one-week rotations with a primary and a secondary. On the async vs sync question, our default is sync gRPC, but we lean async for anything that's idempotent and tolerant of multi-second latency." },
     { "action": "recap", "label": "End of interview — user wants a recap of how it went" }
+  ],
+  "expectations": [
+    {
+      "turn": 2,
+      "no_error": true,
+      "must_not_match": ["machine learning engineer", "data pipelines", "data scientist"],
+      "must_match": "(backend|payments|fintech|Go\\b)",
+      "reason": "Opener must anchor on the primed Go/payments/fintech persona — guards against the ML-hallucination regression"
+    },
+    {
+      "turn": 5,
+      "no_error": true,
+      "min_elapsed_ms": 500,
+      "min_length": 100,
+      "reason": "Back-to-back what_to_say must NOT silently no-op — guards against the cooldown bug"
+    },
+    {
+      "turn": 12,
+      "no_error": true,
+      "must_match": "\\[your |\\[the |\\[an? ",
+      "must_not_match": ["^we had a", "^the worst one I dealt with", "^honestly, the worst"],
+      "reason": "Brainstorm on a behavioral question must scaffold with placeholders — guards against the fabrication regression"
+    },
+    {
+      "turn": 15,
+      "no_error": true,
+      "must_match": "\\?\\s*$",
+      "reason": "Clarify must produce a question — guards against the falls-through-to-answer regression"
+    }
   ]
 }

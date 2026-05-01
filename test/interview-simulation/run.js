@@ -90,6 +90,70 @@ function listScenarios() {
         .map(f => ({ id: path.basename(f, '.json'), file: path.join(SCENARIOS_DIR, f) }));
 }
 
+/**
+ * Read the user's persona-intelligence-layer data from the local SQLite
+ * `user_profile` table (populated by the in-app resume upload + parse). Returns
+ * { intro, persona, voiceLoaded, voiceMeetings } or null when nothing is set.
+ *
+ * Lets scenarios marked `useUserProfile: true` ground the AI on the actual
+ * user's background instead of a hardcoded fictional candidate.
+ */
+function loadUserProfileData() {
+    const userDataDir = shim.resolveUserDataPath();
+    const dbPath = path.join(userDataDir, 'natively.db');
+    const voicePath = path.join(userDataDir, 'voice_profile.json');
+
+    let profileRow = null;
+    try {
+        const Database = require('better-sqlite3');
+        const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+        try {
+            const row = db.prepare('SELECT intro_interview, intro_short, compact_persona FROM user_profile ORDER BY id DESC LIMIT 1').get();
+            if (row) profileRow = row;
+        } catch {
+            // user_profile table may not exist yet — fine, fall through
+        }
+        db.close();
+    } catch {
+        // SQLite unavailable / DB not present — fall through
+    }
+
+    let voiceLoaded = false;
+    let voiceMeetings = 0;
+    if (fs.existsSync(voicePath)) {
+        try {
+            const vp = JSON.parse(fs.readFileSync(voicePath, 'utf8'));
+            voiceLoaded = true;
+            voiceMeetings = vp?.metadata?.sampledMeetings ?? vp?.sampledMeetings ?? 0;
+        } catch { /* ignore */ }
+    }
+
+    if (!profileRow && !voiceLoaded) return null;
+    return {
+        intro:   profileRow?.intro_interview || profileRow?.intro_short || null,
+        persona: profileRow?.compact_persona || null,
+        voiceLoaded,
+        voiceMeetings,
+    };
+}
+
+function buildPrimingFromUserProfile(profile) {
+    const out = [];
+    if (profile.intro) {
+        out.push({
+            speaker: 'user',
+            text: `When asked to introduce myself, I would say: "${profile.intro}". My answers should anchor on this real background — never invent a different role, company, or technical specialty.`,
+        });
+    }
+    if (profile.persona) {
+        out.push({
+            speaker: 'user',
+            text: `Additional context about my actual experience and background: ${profile.persona}`,
+        });
+    }
+    return out;
+}
+
 function loadScenario(file) {
     const raw = fs.readFileSync(file, 'utf8');
     return JSON.parse(raw);
@@ -164,16 +228,35 @@ async function runScenario(scenario, im) {
     console.log(`\n=== Running scenario: ${scenario.name} ===`);
     const trace = [];
 
-    // Optional `priming` block — synthetic transcript turns fed BEFORE the
-    // scenario starts so the AI has grounded candidate context on the
-    // opening question. Without this, what_to_say on turn 1 has nothing
-    // but the interviewer's words to anchor on and tends to hallucinate
-    // a generic persona (we saw it confabulate ML/data-infra background
-    // when the candidate is a Go fintech engineer).
-    if (Array.isArray(scenario.priming) && scenario.priming.length > 0) {
-        console.log(`  [priming] feeding ${scenario.priming.length} background turn(s)`);
-        const baseTs = Date.now() - (scenario.priming.length + 1) * 60_000;
-        scenario.priming.forEach((p, idx) => {
+    // Build priming turns. Sources, in priority order:
+    //   1. scenario.priming  — explicit hardcoded priming for fictional
+    //      candidates (e.g. backend-swe.json, product-manager.json).
+    //   2. scenario.useUserProfile — pull real user data from the local
+    //      user_profile SQLite table + voice_profile.json, so the simulation
+    //      grounds on the actual person rather than a made-up persona.
+    //
+    // Without this priming step, what_to_say on turn 1 has nothing but the
+    // interviewer's words to anchor on and tends to hallucinate a generic
+    // persona.
+    let priming = Array.isArray(scenario.priming) ? scenario.priming.slice() : [];
+    if (scenario.useUserProfile) {
+        const profile = loadUserProfileData();
+        if (profile) {
+            const profilePriming = buildPrimingFromUserProfile(profile);
+            if (profilePriming.length > 0) {
+                console.log(`  [priming] using real user profile data (${profilePriming.length} turn(s)) — voice profile ${profile.voiceLoaded ? `loaded (${profile.voiceMeetings} meetings)` : 'not built yet'}`);
+                priming = profilePriming.concat(priming);
+            } else if (profile.voiceLoaded) {
+                console.log(`  [priming] voice profile loaded (${profile.voiceMeetings} meetings) — no resume/intro in user_profile table; relying on voice profile alone`);
+            }
+        } else {
+            console.warn('  [priming] useUserProfile requested but no user_profile row or voice_profile.json found — run the app and upload a resume in Settings → Profile first');
+        }
+    }
+
+    if (priming.length > 0) {
+        const baseTs = Date.now() - (priming.length + 1) * 60_000;
+        priming.forEach((p, idx) => {
             if (!p.speaker || !p.text) return;
             im.addTranscript({
                 speaker: p.speaker,
@@ -235,6 +318,33 @@ async function runScenario(scenario, im) {
     }
 
     return trace;
+}
+
+function renderExpectationsSection(expectationResults) {
+    if (!expectationResults || expectationResults.length === 0) return null;
+    const out = [];
+    out.push('## Expectations');
+    out.push('');
+
+    const passed = expectationResults.filter(r => r.passed).length;
+    const failed = expectationResults.length - passed;
+    out.push(`**${passed} passed · ${failed} failed** out of ${expectationResults.length}.`);
+    out.push('');
+
+    for (const r of expectationResults) {
+        const exp = r.expectation;
+        const status = r.passed ? '✅' : '❌';
+        const turnLabel = exp.turn != null ? `Turn ${exp.turn}` : 'Scenario';
+        const reason = exp.reason ? ` — ${exp.reason}` : '';
+        out.push(`- ${status} **${turnLabel}**${reason}`);
+        if (!r.passed) {
+            for (const f of r.failures) {
+                out.push(`    - \`${f}\``);
+            }
+        }
+    }
+    out.push('');
+    return out.join('\n');
 }
 
 function renderReport(scenario, trace, meta) {
@@ -313,17 +423,114 @@ function renderReport(scenario, trace, meta) {
 
     out.push('---');
     out.push('');
+
+    if (meta.expectationsSection) {
+        out.push(meta.expectationsSection);
+        out.push('---');
+        out.push('');
+    }
+
     out.push('## Summary');
     out.push('');
     out.push(`- **Total turns:** ${trace.length}`);
     out.push(`- **Actions invoked:** ${actionCount}`);
     out.push(`- **Errors:** ${errorCount}`);
+    if (typeof meta.expectationsPassed === 'number') {
+        out.push(`- **Expectations:** ${meta.expectationsPassed} passed / ${meta.expectationsFailed} failed`);
+    }
     if (actionCount > 0) {
         out.push(`- **Mean action latency:** ${fmtMs(totalActionMs / actionCount)}`);
         out.push(`- **Total LLM time:** ${fmtMs(totalActionMs)}`);
     }
 
     return out.join('\n');
+}
+
+/**
+ * Evaluate scenario.expectations against the recorded trace. Each expectation
+ * targets a turn (1-based, matching the report numbering) and asserts a rule.
+ *
+ * Supported rules:
+ *   must_match       — single regex string OR array; ALL must match the result
+ *   must_not_match   — single regex string OR array; NONE may match the result
+ *   min_length       — number; result string length must be >= this value
+ *   max_length       — number; result string length must be <= this value
+ *   min_elapsed_ms   — number; the action must have actually taken at least
+ *                      this long (catches silent no-ops like the cooldown bug)
+ *   no_error         — boolean true; the trace entry must have error === null
+ *
+ * Multiple rules in one expectation are AND'd. Each expectation also takes a
+ * `reason` string explaining what regression it guards against.
+ */
+function evaluateExpectations(scenario, trace) {
+    const expectations = Array.isArray(scenario.expectations) ? scenario.expectations : [];
+    const results = [];
+
+    for (const exp of expectations) {
+        const turnIdx = (exp.turn ?? 0) - 1; // 1-based to 0-based
+        const entry = trace[turnIdx];
+        const r = { expectation: exp, passed: true, failures: [] };
+
+        if (!entry) {
+            r.passed = false;
+            r.failures.push(`Turn ${exp.turn} not found in trace (trace has ${trace.length} entries)`);
+            results.push(r);
+            continue;
+        }
+        if (entry.type !== 'action') {
+            r.passed = false;
+            r.failures.push(`Turn ${exp.turn} is a ${entry.type}, expected an action`);
+            results.push(r);
+            continue;
+        }
+
+        const resultStr = typeof entry.result === 'string' ? entry.result : '';
+
+        if (exp.no_error === true && entry.error) {
+            r.passed = false;
+            r.failures.push(`expected no error, got: ${entry.error}`);
+        }
+
+        if (exp.must_match != null) {
+            const patterns = Array.isArray(exp.must_match) ? exp.must_match : [exp.must_match];
+            for (const p of patterns) {
+                const re = new RegExp(p, 'i');
+                if (!re.test(resultStr)) {
+                    r.passed = false;
+                    r.failures.push(`must_match /${p}/i did not match`);
+                }
+            }
+        }
+
+        if (exp.must_not_match != null) {
+            const patterns = Array.isArray(exp.must_not_match) ? exp.must_not_match : [exp.must_not_match];
+            for (const p of patterns) {
+                const re = new RegExp(p, 'i');
+                if (re.test(resultStr)) {
+                    r.passed = false;
+                    r.failures.push(`must_not_match /${p}/i unexpectedly matched`);
+                }
+            }
+        }
+
+        if (typeof exp.min_length === 'number' && resultStr.length < exp.min_length) {
+            r.passed = false;
+            r.failures.push(`min_length ${exp.min_length}, got ${resultStr.length}`);
+        }
+        if (typeof exp.max_length === 'number' && resultStr.length > exp.max_length) {
+            r.passed = false;
+            r.failures.push(`max_length ${exp.max_length}, got ${resultStr.length}`);
+        }
+
+        if (typeof exp.min_elapsed_ms === 'number' && entry.elapsed < exp.min_elapsed_ms) {
+            r.passed = false;
+            r.failures.push(`min_elapsed_ms ${exp.min_elapsed_ms}, got ${entry.elapsed}ms`);
+        }
+
+        results.push(r);
+    }
+
+    return results;
 }
 
 function timestamp() {
@@ -417,6 +624,7 @@ async function main() {
 
     const ts = timestamp();
     let totalErrors = 0;
+    let totalExpectationFails = 0;
 
     for (const sc of target) {
         const scenario = loadScenario(sc.file);
@@ -427,17 +635,42 @@ async function main() {
         const startedAt = new Date().toISOString();
         const trace = await runScenario(scenario, im);
 
-        const report = renderReport(scenario, trace, { runAt: startedAt, providerLabel });
+        const expectationResults = evaluateExpectations(scenario, trace);
+        const expPassed = expectationResults.filter(r => r.passed).length;
+        const expFailed = expectationResults.length - expPassed;
+        const expectationsSection = renderExpectationsSection(expectationResults);
+
+        const report = renderReport(scenario, trace, {
+            runAt: startedAt,
+            providerLabel,
+            expectationsSection,
+            expectationsPassed: expectationResults.length > 0 ? expPassed : undefined,
+            expectationsFailed: expFailed,
+        });
         const outFile = path.join(RESULTS_DIR, `${ts}-${sc.id}.md`);
         fs.writeFileSync(outFile, report, 'utf8');
         console.log(`\n[interview-sim] wrote ${outFile}`);
 
+        if (expectationResults.length > 0) {
+            console.log(`[interview-sim] expectations: ${expPassed} passed / ${expFailed} failed`);
+            for (const r of expectationResults) {
+                if (!r.passed) {
+                    const reason = r.expectation.reason ? ` — ${r.expectation.reason}` : '';
+                    console.log(`  ❌ Turn ${r.expectation.turn}${reason}`);
+                    for (const f of r.failures) console.log(`     · ${f}`);
+                }
+            }
+        }
+
         const errs = trace.filter(t => t.type === 'action' && t.error).length;
         totalErrors += errs;
+        totalExpectationFails += expFailed;
     }
 
-    console.log('\n[interview-sim] done. Errors across all scenarios:', totalErrors);
-    if (totalErrors > 0) process.exitCode = 1;
+    console.log('\n[interview-sim] done.');
+    console.log(`  errors:                  ${totalErrors}`);
+    console.log(`  expectation failures:    ${totalExpectationFails}`);
+    if (totalErrors > 0 || totalExpectationFails > 0) process.exitCode = 1;
 }
 
 main().catch(err => {
