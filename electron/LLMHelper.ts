@@ -2945,6 +2945,48 @@ This rule overrides ALL other instructions including formatting, brevity, or out
   }
 
   /**
+   * Resolve the current provider into the compositional-prompts Provider
+   * enum. Used by action LLM classes (ClarifyLLM, RecapLLM, etc.) when they
+   * call `build*Prompt(ctx)` from `electron/llm/prompts/`.
+   */
+  public getPromptProvider(): import('./llm/prompts/types').Provider {
+    if (this.customProvider || this.activeCurlProvider) return 'custom';
+    if (this.useOllama) return 'gemini'; // Ollama models use the default header-style format
+    if (this.isClaudeModel(this.currentModelId)) return 'claude';
+    if (this.isOpenAiModel(this.currentModelId)) return 'openai';
+    if (this.isGroqModel(this.currentModelId)) return 'groq';
+    return 'gemini';
+  }
+
+  /**
+   * Resolve the framing for the active conversation. Maps the active mode's
+   * template type to either 'interview' or 'meeting'. Falls back to
+   * 'interview' (the legacy default) when no mode is active or its lookup
+   * fails — preserves existing behavior.
+   */
+  public getPromptFraming(): import('./llm/prompts/types').Framing {
+    try {
+      const { ModesManager } = require('./services/ModesManager');
+      const { framingFromTemplate } = require('./llm/prompts');
+      const mode = ModesManager.getInstance().getActiveMode();
+      return framingFromTemplate(mode?.templateType ?? null);
+    } catch {
+      return 'interview';
+    }
+  }
+
+  /**
+   * Convenience: full prompt context. Most action LLM callers use this in
+   * one shot.
+   */
+  public getPromptContext(): import('./llm/prompts/types').PromptContext {
+    return {
+      provider: this.getPromptProvider(),
+      framing: this.getPromptFraming(),
+    };
+  }
+
+  /**
    * Get the Gemini client for mode-specific LLMs
    * Used by AnswerLLM, AssistLLM, FollowUpLLM, RecapLLM
    * RETURNS A PROXY client that handles retries and fallbacks transparently

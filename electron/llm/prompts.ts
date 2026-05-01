@@ -2278,6 +2278,24 @@ export function formatCandidateVoiceAnchor(args: {
  * CONTEXT_INTELLIGENCE_LAYER (resume/JD rules) and the active-mode suffix in
  * the assembled system prompt. See buildSystemPromptWithMeetingLayer below.
  */
+// ==========================================
+// COMPOSITIONAL PROMPT BUILDERS — re-exported from prompts/
+// ==========================================
+// Per-action builder functions that compose framings + atoms + provider
+// formatting. New callers should use these instead of the per-action ×
+// per-provider string constants above. As actions migrate, the legacy
+// constants will be deleted.
+export {
+    buildClarifyPrompt,
+    buildRecapPrompt,
+    buildFollowUpPrompt,
+    buildFollowUpQuestionsPrompt,
+    framingFromTemplate,
+    type PromptContext,
+    type Framing,
+    type Provider,
+} from './prompts/index';
+
 export const MEETING_CONTEXT_LAYER = `
 <meeting_context_layer>
 ## LIVE MEETING CONTEXT

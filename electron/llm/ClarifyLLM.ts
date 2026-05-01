@@ -1,5 +1,5 @@
 import { LLMHelper } from "../LLMHelper";
-import { CLARIFY_MODE_PROMPT } from "./prompts";
+import { buildClarifyPrompt } from "./prompts";
 
 export class ClarifyLLM {
     private llmHelper: LLMHelper;
@@ -14,7 +14,8 @@ export class ClarifyLLM {
     async generate(context: string): Promise<string> {
         if (!context.trim()) return "";
         try {
-            const stream = this.llmHelper.streamChat(context, undefined, undefined, CLARIFY_MODE_PROMPT);
+            const systemPrompt = buildClarifyPrompt(this.llmHelper.getPromptContext());
+            const stream = this.llmHelper.streamChat(context, undefined, undefined, systemPrompt);
             let fullResponse = "";
             for await (const chunk of stream) fullResponse += chunk;
             return fullResponse.trim();
@@ -30,7 +31,8 @@ export class ClarifyLLM {
     async *generateStream(context: string): AsyncGenerator<string> {
         if (!context.trim()) return;
         try {
-            yield* this.llmHelper.streamChat(context, undefined, undefined, CLARIFY_MODE_PROMPT);
+            const systemPrompt = buildClarifyPrompt(this.llmHelper.getPromptContext());
+            yield* this.llmHelper.streamChat(context, undefined, undefined, systemPrompt);
         } catch (error) {
             console.error("[ClarifyLLM] Streaming generation failed:", error);
         }
