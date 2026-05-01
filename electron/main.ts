@@ -2,7 +2,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, systemPref
 import path from "path"
 import fs from "fs"
 import { autoUpdater } from "electron-updater"
-import { logToFile, installConsoleOverrides, installProcessErrorHandlers } from "./utils/mainLogger"
+import { installConsoleOverrides, installProcessErrorHandlers } from "./utils/mainLogger"
 import { ensureMacMicrophoneAccess, getMacScreenCaptureStatus } from "./utils/macPermissions"
 
 if (!app.isPackaged) {

@@ -1,8 +1,7 @@
 // ipcHandlers.ts
 
-import { app, ipcMain, shell, dialog, desktopCapturer, systemPreferences, BrowserWindow, screen } from "electron"
+import { app, ipcMain, shell, systemPreferences, BrowserWindow, screen } from "electron"
 import { AppState } from "./main"
-import { GEMINI_FLASH_MODEL } from "./IntelligenceManager"
 import { DatabaseManager } from "./db/DatabaseManager"; // Import Database Manager
 import * as os from "os";
 import * as path from "path";
@@ -11,8 +10,6 @@ import * as fs from "fs";
 import { RECOGNITION_LANGUAGES, AI_RESPONSE_LANGUAGES } from "./config/languages"
 import {
   safeHandle,
-  isProOrTrialActive,
-  broadcastContextStatus,
   clearActiveModeOnLicenseLoss,
 } from "./ipc/helpers";
 import { registerThemeHandlers } from "./ipc/theme";
