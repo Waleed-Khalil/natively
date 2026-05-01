@@ -2,47 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Bell, Rocket } from 'lucide-react';
 import mainui from "../UI_comp/mainui.png";
-
-// --- Types ---
-
-interface FeatureSlide {
-    id: string;
-    headline: string;
-    subtitle: string;
-    type?: 'feature' | 'support' | 'premium';
-    actionLabel?: string;
-    url?: string;
-    eyebrow?: string;
-    bullets?: string[];
-    footer?: string;
-}
-
-// --- Data ---
-
-const FEATURES: FeatureSlide[] = [
-    {
-        id: 'tailored_answers',
-        headline: 'Upcoming features',
-        subtitle: 'Answers, tailored to you',
-        bullets: ['Repo aware explanations', 'System design interview specialization'],
-        footer: 'Designed to work silently during live interviews.',
-        type: 'premium',
-    },
-
-    {
-        id: 'support_natively',
-        headline: 'Support development',
-        subtitle: 'Built openly and sustained by users',
-        bullets: [
-            'Development driven by real users',
-            'Faster iteration on features that matter',
-
-        ],
-        type: 'support',
-        actionLabel: 'Contribute to development',
-        url: 'https://buymeacoffee.com/evinjohnn'
-    }
-];
+import { FEATURES } from './featureSpotlightData';
 
 // --- Component ---
 

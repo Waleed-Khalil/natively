@@ -1,10 +1,6 @@
 import React from "react"
 import ScreenshotItem from "./ScreenshotItem"
-
-interface Screenshot {
-  path: string
-  preview: string
-}
+import type { Screenshot } from "./types"
 
 interface ScreenshotQueueProps {
   isLoading: boolean

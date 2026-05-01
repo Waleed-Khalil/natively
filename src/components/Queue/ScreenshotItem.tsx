@@ -1,11 +1,7 @@
 // src/components/ScreenshotItem.tsx
 import React from "react"
 import { X } from "lucide-react"
-
-interface Screenshot {
-  path: string
-  preview: string
-}
+import type { Screenshot } from "./types"
 
 interface ScreenshotItemProps {
   screenshot: Screenshot
