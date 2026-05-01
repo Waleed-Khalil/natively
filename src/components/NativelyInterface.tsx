@@ -200,7 +200,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
     }, []);
 
     // Model Selection State
-    const [currentModel, setCurrentModel] = useState<string>('gemini-3-flash-preview');
+    const [currentModel, setCurrentModel] = useState<string>('claude-sonnet-4-6');
 
     // Dynamic Action Button Mode (Recap vs Brainstorm)
     const [actionButtonMode, setActionButtonMode] = useState<'recap' | 'brainstorm'>('recap');
@@ -2367,11 +2367,6 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
                                             <span className="truncate max-w-[150px]">
                                                 {(() => {
                                                     const m = currentModel;
-                                                    if (m.startsWith('ollama-')) return m.replace('ollama-', '');
-                                                    if (m === 'gemini-3.1-flash-lite-preview') return 'Gemini 3.1 Flash';
-                                                    if (m === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro';
-                                                    if (m === 'llama-3.3-70b-versatile') return 'Groq Llama 3.3';
-                                                    if (m === 'gpt-5.4') return 'GPT 5.4';
                                                     if (m === 'claude-sonnet-4-6') return 'Sonnet 4.6';
                                                     if (m === 'claude-haiku-4-5-20251001') return 'Haiku 4.5';
                                                     return m;
