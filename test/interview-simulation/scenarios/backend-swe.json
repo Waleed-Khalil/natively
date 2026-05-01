@@ -1,0 +1,32 @@
+{
+  "name": "Backend SWE — Distributed Systems",
+  "description": "Mid-level backend engineer interview at a B2B fintech. Mix of behavioral, system design, and coding.",
+  "context": {
+    "role": "Senior Backend Engineer",
+    "company": "Stripe",
+    "candidate": "5 years experience, mostly Go and Python, currently at a smaller fintech startup"
+  },
+  "turns": [
+    { "speaker": "interviewer", "text": "Hi, thanks for joining. Let's start with a quick intro — tell me about yourself and what you've been working on lately." },
+    { "action": "what_to_say", "label": "User clicks 'What to answer' on opening question" },
+    { "speaker": "user", "text": "I'm a backend engineer with about five years of experience. I'm currently at a smaller fintech where I lead our payments infrastructure team. We process around 200,000 transactions per day across a few microservices in Go." },
+    { "speaker": "interviewer", "text": "Cool. Let's do a system design. How would you design a URL shortener like bit.ly that needs to handle a billion redirects per day?" },
+    { "action": "what_to_say", "label": "User wants the AI's first-pass answer" },
+    { "action": "code_hint", "label": "User asks for a code-leaning hint on the storage layer" },
+    { "speaker": "user", "text": "OK so I'd start with a key-value store. The main read path is the redirect, which has to be fast — single-digit milliseconds at the 99th percentile. I'd put a cache in front of the database." },
+    { "speaker": "interviewer", "text": "Good. What about ID generation? You don't want collisions and you don't want predictable URLs." },
+    { "action": "follow_up", "intent": "elaborate", "label": "User wants more depth on the ID generation question" },
+    { "speaker": "user", "text": "I'd use a counter-based approach with base62 encoding. But to avoid hot spots, I'd shard the counter across multiple ID generation services." },
+    { "speaker": "interviewer", "text": "OK, switching gears — tell me about a time you had to debug a really nasty production issue." },
+    { "action": "brainstorm", "label": "User isn't sure how to frame the answer; asks for brainstorm" },
+    { "speaker": "user", "text": "We had a memory leak in our Go service that took down the cluster on Black Friday last year. It turned out to be a goroutine leak in our retry logic — we weren't cancelling contexts properly." },
+    { "speaker": "interviewer", "text": "Nice, that's a good story. What did you change about your team's process after that?" },
+    { "action": "clarify", "label": "User wants to ask a clarifying question back" },
+    { "speaker": "user", "text": "We added context cancellation linting to our CI pipeline and started doing pre-deploy load tests for any change touching the retry path." },
+    { "speaker": "interviewer", "text": "Last question — do you have any questions for me?" },
+    { "action": "follow_up_questions", "label": "User triggers Follow-Up Questions to get good things to ask" },
+    { "speaker": "user", "text": "Yeah — what does the team's on-call rotation look like, and how does Stripe think about the trade-off between async messaging and synchronous APIs for internal services?" },
+    { "speaker": "interviewer", "text": "Great questions. We do one-week rotations with a primary and a secondary. On the async vs sync question, our default is sync gRPC, but we lean async for anything that's idempotent and tolerant of multi-second latency." },
+    { "action": "recap", "label": "End of interview — user wants a recap of how it went" }
+  ]
+}

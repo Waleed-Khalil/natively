@@ -1,0 +1,116 @@
+# Interview Simulation
+
+Drives `IntelligenceManager` through a scripted interview transcript and triggers the same manual action buttons exposed in the UI (What to Answer, Clarify, Code Hint, Brainstorm, Follow-Up, Recap, Follow-Up Questions, Manual Question). Each AI response is captured into a markdown report so you can eyeball behavior, regress against earlier runs, and decide where prompts/routing need tightening.
+
+## Quick start
+
+```bash
+# Run all scenarios using your saved API keys (CredentialsManager)
+npm run simulate:interview
+
+# Run a single scenario by name (matches the JSON filename without extension)
+npm run simulate:interview -- backend-swe
+
+# List available scenarios
+npm run simulate:interview -- --list
+```
+
+Reports land in `test/interview-simulation/results/<timestamp>-<scenario-id>.md`.
+
+## Credentials
+
+The runner pulls API keys in this order:
+
+1. **Environment variables** — `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `CLAUDE_API_KEY`. If any are set, env wins.
+2. **CredentialsManager** — when run via `npm run simulate:interview` (which uses `ELECTRON_RUN_AS_NODE=1 electron`), the saved keys from your local app install are decrypted and used.
+
+You need at least one provider key. Gemini is the cheapest/fastest path; Claude or GPT-4 will give you higher-fidelity responses to evaluate.
+
+## Scenario format
+
+Scenarios live in `scenarios/*.json`. Each is a sequence of **turns**, where every turn is either a transcript line or a scheduled action invocation.
+
+```json
+{
+  "name": "Backend SWE — Distributed Systems",
+  "description": "...",
+  "context": { "role": "...", "company": "...", "candidate": "..." },
+  "turns": [
+    { "speaker": "interviewer", "text": "Tell me about yourself." },
+    { "action": "what_to_say", "label": "User clicks 'What to answer'" },
+    { "speaker": "user", "text": "I'm a backend engineer..." },
+    { "action": "follow_up", "intent": "elaborate" },
+    { "action": "recap" }
+  ]
+}
+```
+
+### Turn shapes
+
+**Transcript turn** — gets fed into `IntelligenceManager.addTranscript()`:
+
+```json
+{ "speaker": "interviewer" | "user", "text": "..." }
+```
+
+**Action turn** — invokes the matching `IntelligenceManager.run*()` method:
+
+| `action` value | maps to | optional fields |
+|---|---|---|
+| `assist` | `runAssistMode()` | — |
+| `what_to_say` | `runWhatShouldISay()` | `question`, `confidence`, `imagePaths` |
+| `clarify` | `runClarify()` | — |
+| `code_hint` | `runCodeHint()` | `imagePaths`, `problem` |
+| `brainstorm` | `runBrainstorm()` | `imagePaths`, `problem` |
+| `follow_up` | `runFollowUp()` | `intent` (default `elaborate`), `userRequest` |
+| `recap` | `runRecap()` | — |
+| `follow_up_questions` | `runFollowUpQuestions()` | — |
+| `manual_question` | `runManualAnswer()` | `question` |
+
+`label` is optional metadata that appears in the report ("User clicks 'What to answer' on opening question") — useful for narrating *why* the user would have pressed that button at this point in the interview.
+
+### Important behavior
+
+After every action that produces a string response, the runner feeds the AI's answer back via `addAssistantMessage()`. This means later actions (especially `recap`) see the conversation as if the user had actually used the AI's suggestions — which is the realistic case to test.
+
+## Adding a scenario
+
+1. Drop a new JSON file in `scenarios/`.
+2. Stage interviewer questions, user responses, and action triggers in the order they'd happen.
+3. Run `npm run simulate:interview -- <new-scenario-id>`.
+4. Read the generated markdown report in `results/`.
+
+Tips for good scenarios:
+
+- **Mix easy and hard questions.** Easy ones tell you the prompt isn't being weird; hard ones surface where the AI struggles.
+- **Trigger the same action at different points.** `what_to_say` after the opening question vs. after a system design pivot will exercise different prompt branches.
+- **Include a `recap` at the end.** This validates the whole-session summarization works with the actual transcript shape.
+- **Add a `follow_up` with a specific `intent`** (`elaborate`, `rephrase`, `add_example`, `more_confident`, `more_casual`, `more_formal`, `simplify`) to test the refinement code path.
+
+## Reading the report
+
+Each report has:
+
+- **Header** — scenario name, run timestamp, model that ran the scenario, and the candidate context.
+- **Trace** — every turn in order. Transcript turns are quoted; action turns include the elapsed time and the AI's full response in a code block.
+- **Summary** — turn/action counts, error count, mean and total LLM latency.
+
+What to look for:
+
+- **Hallucinated context** — the AI mentioning things that weren't in the transcript.
+- **Tone drift** — `more_casual` actually producing more casual phrasing, etc.
+- **Recap accuracy** — does the recap remember the actual interview flow, or does it confabulate?
+- **Latency outliers** — actions that suddenly take 10× longer than usual.
+- **Empty or error responses** — anywhere the AI returns null or throws.
+
+## CI use
+
+The script exits with code 1 if any action errors out. To wire this into CI:
+
+```yaml
+- run: npm run simulate:interview
+  env:
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+```
+
+Pin a model version in your scenario's expected behavior notes (in `description`) and diff the report markdown across runs to catch regressions.

@@ -23,7 +23,8 @@
     "voice-profile:build": "npm run build:electron:tsc && cross-env ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron scripts/voice-profile/build.js",
     "voice-profile:inspect": "npm run build:electron:tsc && cross-env ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron scripts/voice-profile/inspect.js",
     "test:voice-profile": "node --test test/voice-profile/*.test.js",
-    "test:interviewer-perspective": "node --test test/interviewer-perspective/*.test.js"
+    "test:interviewer-perspective": "node --test test/interviewer-perspective/*.test.js",
+    "simulate:interview": "npm run build:electron:tsc && cross-env ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron test/interview-simulation/run.js"
   },
   "build": {
     "generateUpdatesFilesForAllChannels": true,

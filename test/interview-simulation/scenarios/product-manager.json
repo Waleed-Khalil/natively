@@ -1,0 +1,31 @@
+{
+  "name": "Product Manager — Growth Case",
+  "description": "PM interview at a consumer SaaS. Heavy on case-style questions and metrics reasoning.",
+  "context": {
+    "role": "Senior Product Manager",
+    "company": "Notion",
+    "candidate": "4 years PM experience, prior background in data analytics, currently at Linear"
+  },
+  "turns": [
+    { "speaker": "interviewer", "text": "Welcome. Tell me about yourself and a product you've shipped recently that you're proud of." },
+    { "action": "what_to_say" },
+    { "speaker": "user", "text": "I'm a senior PM at Linear focused on the growth surface. The thing I'm most proud of recently is we shipped a redesigned onboarding flow that lifted week-1 activation by 18%." },
+    { "speaker": "interviewer", "text": "Notion's daily active users are flat quarter-over-quarter. Walk me through how you'd diagnose what's going on." },
+    { "action": "brainstorm", "label": "Open-ended diagnostic case — user wants brainstorm to structure approach" },
+    { "speaker": "user", "text": "I'd start by decomposing DAU into new vs returning, and looking at retention curves across cohorts. Flat DAU usually means new acquisition is offsetting churn." },
+    { "speaker": "interviewer", "text": "Good. Say you find that week-4 retention has dropped from 35% to 28% in the last six months. What do you do?" },
+    { "action": "what_to_say" },
+    { "action": "follow_up", "intent": "more_confident", "label": "User wants to refine — sound more decisive" },
+    { "speaker": "user", "text": "First I'd segment by cohort source. If it's specific to organic signups vs paid, that points at marketing or product-market fit drift." },
+    { "speaker": "interviewer", "text": "What feature would you build to address it, assuming you confirm the issue is in-product engagement?" },
+    { "action": "brainstorm" },
+    { "speaker": "user", "text": "I'd hypothesize that core habit-forming actions like creating a doc, sharing it, and getting a comment back are where week-4 retention is decided. So I'd build a habit-loop activation campaign — in-product nudges to invite a teammate within the first 7 days." },
+    { "speaker": "interviewer", "text": "How would you measure success?" },
+    { "action": "follow_up", "intent": "add_example", "label": "User wants a concrete metric example added" },
+    { "speaker": "user", "text": "Primary metric: lift in week-4 retention for the treatment cohort. Guardrails: no regression in week-1 activation, no drop in NPS, and we'd watch share rates and comment rates as leading indicators." },
+    { "speaker": "interviewer", "text": "Last one — any questions for me?" },
+    { "action": "follow_up_questions" },
+    { "speaker": "user", "text": "Two things — what does Notion's PM career ladder look like past senior, and how does the growth team interface with the core product team on shared metrics?" },
+    { "action": "recap" }
+  ]
+}
