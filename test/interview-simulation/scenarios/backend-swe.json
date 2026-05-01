@@ -7,7 +7,9 @@
     "candidate": "5 years experience, mostly Go and Python, currently at a smaller fintech startup"
   },
   "priming": [
-    { "speaker": "user", "text": "Quick context for myself before this starts: I'm a senior backend engineer with five years of experience. Most of my work is in Go and Python. I currently lead the payments infrastructure team at a smaller fintech — we process around 200,000 transactions per day across a handful of microservices. The roles I'm interviewing for are senior backend / platform-eng roles, so my answers should anchor on distributed systems, payments correctness, observability, and Go runtime details rather than ML or data-pipeline work." }
+    { "speaker": "user", "text": "I'm a senior backend engineer with five years of experience. Most of my work is in Go and Python. I currently lead the payments infrastructure team at a smaller fintech — we process around 200,000 transactions per day across a handful of microservices. I am NOT a machine learning engineer. I do NOT work on data pipelines or model training. My background is backend / distributed systems, with specific focus on payments correctness, observability, and Go runtime characteristics." },
+    { "speaker": "user", "text": "Some specifics about how I talk about my work, so any answers about my experience anchor on these: my services are written in Go (not Python for the production-critical paths), my infra is on AWS with Postgres and Redis, my team has shipped a Go-based retry library, an idempotency-key system for payment dedup, and a graceful-shutdown framework for our HTTP servers. None of my recent work is in ML, data science, recommendations, or model deployment." },
+    { "speaker": "user", "text": "When asked 'tell me about yourself', I introduce myself as a backend engineer who leads payments infrastructure — not as a machine learning engineer, not as a data scientist, not as a generic software engineer." }
   ],
   "turns": [
     { "speaker": "interviewer", "text": "Hi, thanks for joining. Let's start with a quick intro — tell me about yourself and what you've been working on lately." },

@@ -259,10 +259,14 @@ export class IntelligenceEngine extends EventEmitter {
     async runWhatShouldISay(question?: string, confidence: number = 0.8, imagePaths?: string[], manualTrigger: boolean = true): Promise<string | null> {
         const now = Date.now();
 
-        // Bypass cooldown when the user explicitly attached images (capture-and-process intent).
-        // The cooldown exists to debounce auto-triggers, not explicit shortcuts with context.
+        // The cooldown exists to debounce *auto*-triggers — Autopilot firing on
+        // every interviewer turn that looks like a question. Manual button
+        // presses (the user clicking "What to answer" in the UI) and explicit
+        // image-attached invocations are intentional shortcuts and must NOT be
+        // debounced; otherwise back-to-back manual presses silently no-op.
         const hasImages = imagePaths && imagePaths.length > 0;
-        if (!hasImages && now - this.lastTriggerTime < this.triggerCooldown) {
+        const bypassCooldown = manualTrigger || hasImages;
+        if (!bypassCooldown && now - this.lastTriggerTime < this.triggerCooldown) {
             return null;
         }
 

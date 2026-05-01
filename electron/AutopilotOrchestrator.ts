@@ -180,11 +180,14 @@ export class AutopilotOrchestrator {
     // the routing policy is co-located with the trigger policy and easy to
     // tune without touching the LLM layer.
     private async dispatchForMode(template: ModeTemplateType, question: string): Promise<void> {
+        // Autopilot fires opportunistically on every interviewer turn that looks
+        // like a question — it MUST go through the cooldown so back-to-back
+        // turns don't double-fire. manualTrigger=false flags these calls.
         switch (template) {
             case 'technical-interview':
             case 'looking-for-work':
                 // Standard "what should I say" answer flow.
-                await this.intelligence.runWhatShouldISay(question, 0.85, undefined);
+                await this.intelligence.runWhatShouldISay(question, 0.85, undefined, false);
                 return;
             case 'sales':
             case 'recruiting':
@@ -192,7 +195,7 @@ export class AutopilotOrchestrator {
                 // These benefit from the "what to answer" flow too — it's the
                 // most general-purpose responder. If a mode-specific executor
                 // is added later (e.g. an AssistLLM auto-fire), wire it here.
-                await this.intelligence.runWhatShouldISay(question, 0.8, undefined);
+                await this.intelligence.runWhatShouldISay(question, 0.8, undefined, false);
                 return;
             case 'lecture':
                 // Lectures are mostly listening — autopilot should stay quieter.
@@ -201,7 +204,7 @@ export class AutopilotOrchestrator {
                 return;
             case 'general':
             default:
-                await this.intelligence.runWhatShouldISay(question, 0.75, undefined);
+                await this.intelligence.runWhatShouldISay(question, 0.75, undefined, false);
                 return;
         }
     }
