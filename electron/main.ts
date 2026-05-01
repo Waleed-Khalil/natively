@@ -33,14 +33,13 @@ import { DeepgramStreamingSTT } from "./audio/DeepgramStreamingSTT"
 import { SonioxStreamingSTT } from "./audio/SonioxStreamingSTT"
 import { ElevenLabsStreamingSTT } from "./audio/ElevenLabsStreamingSTT"
 import { OpenAIStreamingSTT } from "./audio/OpenAIStreamingSTT"
-import { NativelyProSTT } from "./audio/NativelyProSTT"
 import { ThemeManager } from "./ThemeManager"
 import { RAGManager } from "./rag/RAGManager"
 import { DatabaseManager } from "./db/DatabaseManager"
 import { warmupIntentClassifier } from "./llm"
 
 /** Unified type for all STT providers with optional extended capabilities */
-type STTProvider = (GoogleSTT | RestSTT | DeepgramStreamingSTT | SonioxStreamingSTT | ElevenLabsStreamingSTT | OpenAIStreamingSTT | NativelyProSTT) & {
+type STTProvider = (GoogleSTT | RestSTT | DeepgramStreamingSTT | SonioxStreamingSTT | ElevenLabsStreamingSTT | OpenAIStreamingSTT) & {
   finalize?: () => void;
   setAudioChannelCount?: (count: number) => void;
   notifySpeechEnded?: () => void;
@@ -78,7 +77,6 @@ import { CredentialsManager } from "./services/CredentialsManager"
 import { SettingsManager } from "./services/SettingsManager"
 import { setVerboseLoggingFlag } from "./verboseLog"
 import { ReleaseNotesManager } from "./update/ReleaseNotesManager"
-import { OllamaManager } from './services/OllamaManager'
 
 export class AppState {
   private static instance: AppState | null = null
@@ -118,7 +116,6 @@ export class AppState {
   private _disguiseTimers: NodeJS.Timeout[] = []; // Track forceUpdate timeouts
   private _dockDebounceTimer: NodeJS.Timeout | null = null; // Debounce dock state changes
   private _dockReassertTimers: NodeJS.Timeout[] = []; // Re-assert dock-hidden state after show+focus
-  private _ollamaBootstrapPromise: Promise<void> | null = null;
   private screenshotCaptureInProgress: boolean = false;
 
 
@@ -341,18 +338,9 @@ export class AppState {
     // Initialize ThemeManager
     this.themeManager = ThemeManager.getInstance()
 
-    // Restore toggle states that live in LLMHelper memory.
-    // This MUST happen here — not inside initializeRAGManager() — so that
-    // it runs unconditionally regardless of whether premium modules are available.
-    // Previously, groqFastTextMode restore was inside the KnowledgeOrchestrator
-    // block which silently skips when premium modules are absent.
+    // Restore custom notes (lives in LLMHelper memory).
     {
       const llmHelper = this.processingHelper.getLLMHelper();
-      if (settingsManager.get('groqFastTextMode')) {
-        llmHelper.setGroqFastTextMode(true);
-        console.log('[AppState] Fast mode restored from settings');
-      }
-      // Restore custom notes for non-premium path
       try {
         const savedNotes = DatabaseManager.getInstance().getCustomNotes();
         if (savedNotes) {
@@ -363,18 +351,11 @@ export class AppState {
 
     // Initialize RAGManager (requires database to be ready)
     this.initializeRAGManager()
-    
-    // Check and prep Ollama embedding model
-    this.bootstrapOllamaEmbeddings()
-
 
     this.setupIntelligenceEvents()
 
     // Pre-warm the zero-shot intent classifier in background
     warmupIntentClassifier();
-
-    // Setup Ollama IPC
-    this.setupOllamaIpcHandlers()
 
     // --- NEW SYSTEM AUDIO PIPELINE (SOX + NODE GOOGLE STT) ---
     // LAZY INIT: Do not setup pipeline here to prevent launch volume surge.
@@ -408,38 +389,6 @@ export class AppState {
     this.broadcast('meeting-state-changed', { isActive: this.isMeetingActive });
   }
 
-  private async bootstrapOllamaEmbeddings() {
-    this._ollamaBootstrapPromise = (async () => {
-      try {
-        const { OllamaBootstrap } = require('./rag/OllamaBootstrap');
-        const bootstrap = new OllamaBootstrap();
-
-        // Fire and forget — don't await this before showing the window
-        const result = await bootstrap.bootstrap('nomic-embed-text', (status: string, percent: number) => {
-          // Send progress to renderer via IPC
-          this.broadcast('ollama:pull-progress', { status, percent });
-        });
-
-        if (result === 'pulled' || result === 'already_pulled') {
-          this.broadcast('ollama:pull-complete');
-          // Re-resolve the embedding provider given that Ollama might now be available
-          if (this.ragManager) {
-             console.log('[AppState] Ollama model ready, re-evaluating RAG pipeline provider');
-             const { CredentialsManager } = require('./services/CredentialsManager');
-             const cm = CredentialsManager.getInstance();
-             this.ragManager.initializeEmbeddings({
-                openaiKey: cm.getOpenaiApiKey() || process.env.OPENAI_API_KEY || undefined,
-                geminiKey: cm.getGeminiApiKey() || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || undefined,
-                ollamaUrl: process.env.OLLAMA_URL || "http://localhost:11434"
-             });
-          }
-        }
-      } catch (err) {
-         console.error('[AppState] Failed to bootstrap Ollama:', err);
-      }
-    })();
-  }
-
   private initializeRAGManager(): void {
     try {
       const db = DatabaseManager.getInstance();
@@ -450,14 +399,13 @@ export class AppState {
         const cm = CredentialsManager.getInstance();
         const openaiKey = cm.getOpenaiApiKey() || process.env.OPENAI_API_KEY;
         const geminiKey = cm.getGeminiApiKey() || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-        
-        this.ragManager = new RAGManager({ 
-            db: sqliteDb, 
+
+        this.ragManager = new RAGManager({
+            db: sqliteDb,
             dbPath: db.getDbPath(),
             extPath: db.getExtPath(),
             openaiKey,
             geminiKey,
-            ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434'
         });
         this.ragManager.setLLMHelper(this.processingHelper.getLLMHelper());
         console.log('[AppState] RAGManager initialized');
@@ -700,19 +648,7 @@ export class AppState {
 
     let stt: STTProvider;
 
-    if (effectiveSttProvider === 'natively') {
-      const nativelyKey = CredentialsManager.getInstance().getNativelyApiKey();
-      if (!nativelyKey) {
-        // Natively is Coming Soon — no key means degrade gracefully like every other provider
-        console.warn(`[Main] No Natively API Key configured for ${speaker}, falling back to GoogleSTT`);
-        stt = new GoogleSTT(speaker);
-      } else {
-        // 'system' for interviewer (system audio), 'mic' for user (microphone).
-        // The server uses ${key}:${channel} as the session key so both streams
-        // can coexist without triggering concurrent_session_blocked.
-        stt = new NativelyProSTT(nativelyKey, speaker === 'interviewer' ? 'system' : 'mic');
-      }
-    } else if (effectiveSttProvider === 'deepgram') {
+    if (effectiveSttProvider === 'deepgram') {
       const apiKey = CredentialsManager.getInstance().getDeepgramApiKey() || envDeepgramKey;
       if (apiKey) {
         if (sttProvider === 'none' && envDeepgramKey)
@@ -943,17 +879,8 @@ export class AppState {
       }
     });
 
-    // Auto language detection: NativelyProSTT emits 'languageDetected' when the
-    // backend resolves the language from the first audio batch. Notify the renderer
-    // so the settings UI can show what was detected.
-    if (stt instanceof NativelyProSTT) {
-      stt.on('languageDetected', (bcp47: string) => {
-        console.log(`[Main] STT language auto-detected (${speaker}): ${bcp47}`);
-        const helper = this.getWindowHelper();
-        helper.getMainWindow()?.webContents.send('stt-language-auto-detected', bcp47);
-        helper.getLauncherWindow()?.webContents.send('stt-language-auto-detected', bcp47);
-      });
-    }
+    // Auto language detection used to be wired through NativelyProSTT —
+    // removed with the Natively-hosted backend purge.
 
     return stt;
   }
@@ -1927,9 +1854,8 @@ export class AppState {
       const { CredentialsManager } = require('./services/CredentialsManager');
       const cm = CredentialsManager.getInstance();
       const defaultModel = cm.getDefaultModel();
-      const all = [...(cm.getCurlProviders() || []), ...(cm.getCustomProviders() || [])];
       console.log(`[Main] Reverting model to default: ${defaultModel}`);
-      this.processingHelper.getLLMHelper().setModel(defaultModel, all);
+      this.processingHelper.getLLMHelper().setModel(defaultModel);
       BrowserWindow.getAllWindows().forEach(win => {
         if (!win.isDestroyed()) win.webContents.send('model-changed', defaultModel);
       });
@@ -2147,9 +2073,9 @@ export class AppState {
     const { CredentialsManager } = require('./services/CredentialsManager');
     CredentialsManager.getInstance().setSttLanguage(key);
 
-    // 'auto' is only meaningful for NativelyProSTT — other providers fall back to en-US.
-    const sttProvider = CredentialsManager.getInstance().getSttProvider();
-    const effectiveKey = (key === 'auto' && sttProvider !== 'natively') ? 'english-us' : key;
+    // 'auto' is no longer mapped to a backend that supports auto-detection,
+    // so fall back to en-US for all providers.
+    const effectiveKey = key === 'auto' ? 'english-us' : key;
 
     this.googleSTT?.setRecognitionLanguage(effectiveKey);
     this.googleSTT_User?.setRecognitionLanguage(effectiveKey);
@@ -2315,31 +2241,6 @@ export class AppState {
 
   public getExtraScreenshotQueue(): string[] {
     return this.screenshotHelper.getExtraScreenshotQueue()
-  }
-
-  // Window management methods
-  public setupOllamaIpcHandlers(): void {
-    ipcMain.handle('get-ollama-models', async () => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout for detection
-
-        const response = await fetch('http://localhost:11434/api/tags', {
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          const data = await response.json();
-          // data.models is an array of objects: { name: "llama3:latest", ... }
-          return data.models.map((m: any) => m.name);
-        }
-        return [];
-      } catch (error) {
-        // console.warn("Ollama detection failed:", error);
-        return [];
-      }
-    });
   }
 
   public createWindow(): void {
@@ -3080,9 +2981,6 @@ async function initializeApp() {
   // Apply the full disguise payload (names, dock icon, AUMID) early
   appState.applyInitialDisguise();
 
-  // Start the Ollama lifecycle manager
-  OllamaManager.getInstance().init().catch(console.error);
-
   // NOTE: CredentialsManager.init() and loadStoredCredentials() are already called
   // above before this block — do NOT call them again here to avoid double key-load.
 
@@ -3259,9 +3157,6 @@ async function initializeApp() {
     if (appState?.cropperWindowHelper) {
       appState.cropperWindowHelper.dispose();
     }
-
-    // Kill Ollama if we started it
-    OllamaManager.getInstance().stop();
 
     try {
       const { CredentialsManager } = require('./services/CredentialsManager');

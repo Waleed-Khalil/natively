@@ -47,32 +47,17 @@ interface ElectronAPI {
   quitApp: () => Promise<void>
 
   // LLM Model Management
-  getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>
-  getAvailableOllamaModels: () => Promise<string[]>
-  switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
-  switchToGemini: (apiKey?: string, modelId?: string) => Promise<{ success: boolean; error?: string }>
-  testLlmConnection: (provider: 'gemini' | 'groq' | 'openai' | 'claude', apiKey?: string) => Promise<{ success: boolean; error?: string }>
+  getCurrentLlmConfig: () => Promise<{ provider: "claude"; model: string }>
+  testLlmConnection: (provider: 'claude', apiKey?: string) => Promise<{ success: boolean; error?: string }>
   selectServiceAccount: () => Promise<{ success: boolean; path?: string; cancelled?: boolean; error?: string }>
 
   // API Key Management
-  setGeminiApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
-  setGroqApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
-  setOpenaiApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setClaudeApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
-  setNativelyApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
-  getNativelyUsage: () => Promise<{ ok: boolean; plan?: string; quota?: { transcription: { used: number; limit: number; remaining: number }; ai: { used: number; limit: number; remaining: number }; search: { used: number; limit: number; remaining: number }; resets_at: string }; member_since?: string; error?: string; status?: number }>
-  getStoredCredentials: () => Promise<{ hasGeminiKey: boolean; hasGroqKey: boolean; hasOpenaiKey: boolean; hasClaudeKey: boolean; hasNativelyKey: boolean; googleServiceAccountPath: string | null; sttProvider: string; hasSttGroqKey: boolean; hasSttOpenaiKey: boolean; hasDeepgramKey: boolean; hasElevenLabsKey: boolean; hasAzureKey: boolean; azureRegion: string; hasIbmWatsonKey: boolean; ibmWatsonRegion: string; hasSonioxKey: boolean }>
-  // Free Trial
-  startTrial:     () => Promise<{ ok: boolean; trial_token?: string; started_at?: string; expires_at?: string; expired?: boolean; already_used?: boolean; converted_to?: string | null; usage?: { ai: number; stt_seconds: number; search: number }; limits?: { duration_ms: number; ai_requests: number; stt_minutes: number; search_requests: number }; error?: string; status?: number }>
-  getTrialStatus: () => Promise<{ ok: boolean; expired?: boolean; remaining_ms?: number; started_at?: string; expires_at?: string; converted_to?: string | null; usage?: { ai: number; stt_seconds: number; search: number }; limits?: object; error?: string }>
-  getLocalTrial:  () => Promise<{ hasToken: boolean; trialClaimed?: boolean; trialToken?: string; expiresAt?: string; startedAt?: string; expired?: boolean }>
-  convertTrial:   (choice: string) => Promise<{ ok: boolean }>
-  endTrialByok:   () => Promise<{ success: boolean; error?: string }>
-  onTrialEnded:   (cb: (data: { choice: string }) => void) => () => void
+  getStoredCredentials: () => Promise<{ hasClaudeKey: boolean; googleServiceAccountPath: string | null; sttProvider: string; hasSttGroqKey: boolean; hasSttOpenaiKey: boolean; hasDeepgramKey: boolean; hasElevenLabsKey: boolean; hasAzureKey: boolean; azureRegion: string; hasIbmWatsonKey: boolean; ibmWatsonRegion: string; hasSonioxKey: boolean }>
   onModesActiveCleared: (cb: () => void) => () => void
 
   // STT Provider Management
-  setSttProvider: (provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'natively') => Promise<{ success: boolean; error?: string }>
+  setSttProvider: (provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox') => Promise<{ success: boolean; error?: string }>
   getSttProvider: () => Promise<string>
   setGroqSttApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
   setOpenAiSttApiKey: (apiKey: string) => Promise<{ success: boolean; error?: string }>
@@ -151,22 +136,12 @@ interface ElectronAPI {
   setModel: (modelId: string) => Promise<{ success: boolean; error?: string }>
   setDefaultModel: (modelId: string) => Promise<{ success: boolean; error?: string }>
   toggleModelSelector: (coords: { x: number; y: number }) => Promise<void>
-  forceRestartOllama: () => Promise<void>
 
   // Settings Window
   toggleSettingsWindow: (coords?: { x: number; y: number }) => Promise<void>
 
-  // Groq Fast Text Mode
-  getGroqFastTextMode: () => Promise<{ enabled: boolean }>
-  setGroqFastTextMode: (enabled: boolean) => Promise<{ success: boolean; error?: string }>
-
   // Demo
   seedDemo: () => Promise<{ success: boolean }>
-
-  // Custom Providers
-  saveCustomProvider: (provider: any) => Promise<{ success: boolean; id?: string; error?: string }>
-  getCustomProviders: () => Promise<any[]>
-  deleteCustomProvider: (id: string) => Promise<{ success: boolean; error?: string }>
 
   // Follow-up Email
   generateFollowupEmail: (input: any) => Promise<string>
@@ -202,10 +177,10 @@ interface ElectronAPI {
   onOverlayMousePassthroughChanged: (callback: (enabled: boolean) => void) => () => void
 
   // Streaming listeners
-  streamGeminiChat: (message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean, ignoreKnowledgeMode?: boolean }) => Promise<void>
-  onGeminiStreamToken: (callback: (token: string) => void) => () => void
-  onGeminiStreamDone: (callback: () => void) => () => void
-  onGeminiStreamError: (callback: (error: string) => void) => () => void
+  streamLlmChat: (message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean, ignoreKnowledgeMode?: boolean }) => Promise<void>
+  onLlmStreamToken: (callback: (token: string) => void) => () => void
+  onLlmStreamDone: (callback: () => void) => () => void
+  onLlmStreamError: (callback: (error: string) => void) => () => void
 
 
   onUndetectableChanged: (callback: (state: boolean) => void) => () => void
@@ -562,40 +537,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // LLM Model Management
   getCurrentLlmConfig: () => ipcRenderer.invoke("get-current-llm-config"),
-  getAvailableOllamaModels: () => ipcRenderer.invoke("get-available-ollama-models"),
-  switchToOllama: (model?: string, url?: string) => ipcRenderer.invoke("switch-to-ollama", model, url),
-  switchToGemini: (apiKey?: string, modelId?: string) => ipcRenderer.invoke("switch-to-gemini", apiKey, modelId),
-  testLlmConnection: (provider: 'gemini' | 'groq' | 'openai' | 'claude', apiKey: string) => ipcRenderer.invoke("test-llm-connection", provider, apiKey),
+  testLlmConnection: (provider: 'claude', apiKey: string) => ipcRenderer.invoke("test-llm-connection", provider, apiKey),
   selectServiceAccount: () => ipcRenderer.invoke("select-service-account"),
 
   // API Key Management
-  setGeminiApiKey: (apiKey: string) => ipcRenderer.invoke("set-gemini-api-key", apiKey),
-  setGroqApiKey: (apiKey: string) => ipcRenderer.invoke("set-groq-api-key", apiKey),
-  setOpenaiApiKey: (apiKey: string) => ipcRenderer.invoke("set-openai-api-key", apiKey),
   setClaudeApiKey: (apiKey: string) => ipcRenderer.invoke("set-claude-api-key", apiKey),
-  setNativelyApiKey: (apiKey: string) => ipcRenderer.invoke("set-natively-api-key", apiKey),
-  getNativelyUsage: () => ipcRenderer.invoke("get-natively-usage"),
   getStoredCredentials: () => ipcRenderer.invoke("get-stored-credentials"),
 
   // Permissions
   checkPermissions:    () => ipcRenderer.invoke("permissions:check"),
   requestMicPermission: () => ipcRenderer.invoke("permissions:request-mic"),
 
-  // Free Trial
-  startTrial:       () => ipcRenderer.invoke("trial:start"),
-  getTrialStatus:   () => ipcRenderer.invoke("trial:status"),
-  getLocalTrial:    () => ipcRenderer.invoke("trial:get-local"),
-  convertTrial:     (choice: string) => ipcRenderer.invoke("trial:convert", choice),
-  endTrialByok:        () => ipcRenderer.invoke("trial:end-byok"),
-  wipeTrialProfileData: () => ipcRenderer.invoke("trial:wipe-profile-data"),
-  onTrialEnded:     (cb: (data: { choice: string }) => void) => {
-    const sub = (_: any, data: any) => cb(data);
-    ipcRenderer.on('trial-ended', sub);
-    return () => ipcRenderer.removeListener('trial-ended', sub);
-  },
-
   // STT Provider Management
-  setSttProvider: (provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'natively') => ipcRenderer.invoke("set-stt-provider", provider),
+  setSttProvider: (provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox') => ipcRenderer.invoke("set-stt-provider", provider),
   getSttProvider: () => ipcRenderer.invoke("get-stt-provider"),
   setGroqSttApiKey: (apiKey: string) => ipcRenderer.invoke("set-groq-stt-api-key", apiKey),
   setOpenAiSttApiKey: (apiKey: string) => ipcRenderer.invoke("set-openai-stt-api-key", apiKey),
@@ -889,29 +843,29 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
 
   // Streaming Chat
-  streamGeminiChat: (message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean, ignoreKnowledgeMode?: boolean }) => ipcRenderer.invoke("gemini-chat-stream", message, imagePaths, context, options),
+  streamLlmChat: (message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean, ignoreKnowledgeMode?: boolean }) => ipcRenderer.invoke("llm-chat-stream", message, imagePaths, context, options),
 
-  onGeminiStreamToken: (callback: (token: string) => void) => {
+  onLlmStreamToken: (callback: (token: string) => void) => {
     const subscription = (_: any, token: string) => callback(token)
-    ipcRenderer.on("gemini-stream-token", subscription)
+    ipcRenderer.on("llm-stream-token", subscription)
     return () => {
-      ipcRenderer.removeListener("gemini-stream-token", subscription)
+      ipcRenderer.removeListener("llm-stream-token", subscription)
     }
   },
 
-  onGeminiStreamDone: (callback: () => void) => {
+  onLlmStreamDone: (callback: () => void) => {
     const subscription = () => callback()
-    ipcRenderer.on("gemini-stream-done", subscription)
+    ipcRenderer.on("llm-stream-done", subscription)
     return () => {
-      ipcRenderer.removeListener("gemini-stream-done", subscription)
+      ipcRenderer.removeListener("llm-stream-done", subscription)
     }
   },
 
-  onGeminiStreamError: (callback: (error: string) => void) => {
+  onLlmStreamError: (callback: (error: string) => void) => {
     const subscription = (_: any, error: string) => callback(error)
-    ipcRenderer.on("gemini-stream-error", subscription)
+    ipcRenderer.on("llm-stream-error", subscription)
     return () => {
-      ipcRenderer.removeListener("gemini-stream-error", subscription)
+      ipcRenderer.removeListener("llm-stream-error", subscription)
     }
   },
 
@@ -920,22 +874,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setModel: (modelId: string) => ipcRenderer.invoke('set-model', modelId),
   setDefaultModel: (modelId: string) => ipcRenderer.invoke('set-default-model', modelId),
   toggleModelSelector: (coords: { x: number; y: number }) => ipcRenderer.invoke('toggle-model-selector', coords),
-  forceRestartOllama: () => ipcRenderer.invoke('force-restart-ollama'),
 
   // Settings Window
   toggleSettingsWindow: (coords?: { x: number; y: number }) => ipcRenderer.invoke('toggle-settings-window', coords),
 
-  // Groq Fast Text Mode
-  getGroqFastTextMode: () => ipcRenderer.invoke('get-groq-fast-text-mode'),
-  setGroqFastTextMode: (enabled: boolean) => ipcRenderer.invoke('set-groq-fast-text-mode', enabled),
-
   // Demo
   seedDemo: () => ipcRenderer.invoke('seed-demo'),
-
-  // Custom Providers
-  saveCustomProvider: (provider: any) => ipcRenderer.invoke('save-custom-provider', provider),
-  getCustomProviders: () => ipcRenderer.invoke('get-custom-providers'),
-  deleteCustomProvider: (id: string) => ipcRenderer.invoke('delete-custom-provider', id),
 
   // Follow-up Email
   generateFollowupEmail: (input: any) => ipcRenderer.invoke('generate-followup-email', input),
@@ -985,35 +929,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }
   },
 
-  onGroqFastTextChanged: (callback: (enabled: boolean) => void) => {
-    const subscription = (_: any, enabled: boolean) => callback(enabled)
-    ipcRenderer.on('groq-fast-text-changed', subscription)
-    return () => {
-      ipcRenderer.removeListener('groq-fast-text-changed', subscription)
-    }
-  },
-
   onModelChanged: (callback: (modelId: string) => void) => {
     const subscription = (_: any, modelId: string) => callback(modelId)
     ipcRenderer.on('model-changed', subscription)
     return () => {
       ipcRenderer.removeListener('model-changed', subscription)
-    }
-  },
-
-  onOllamaPullProgress: (callback: (data: { status: string; percent: number }) => void) => {
-    const subscription = (_: any, data: any) => callback(data)
-    ipcRenderer.on('ollama:pull-progress', subscription)
-    return () => {
-      ipcRenderer.removeListener('ollama:pull-progress', subscription)
-    }
-  },
-
-  onOllamaPullComplete: (callback: () => void) => {
-    const subscription = () => callback()
-    ipcRenderer.on('ollama:pull-complete', subscription)
-    return () => {
-      ipcRenderer.removeListener('ollama:pull-complete', subscription)
     }
   },
 

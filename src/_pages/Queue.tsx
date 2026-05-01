@@ -98,7 +98,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
     const cleanups: (() => void)[] = [];
 
     // Stream Token
-    cleanups.push(window.electronAPI.onGeminiStreamToken((token) => {
+    cleanups.push(window.electronAPI.onLlmStreamToken((token) => {
       setChatMessages(prev => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg && lastMsg.role === 'gemini' && lastMsg.text.endsWith("...")) {
@@ -126,12 +126,12 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
     }));
 
     // Stream Done
-    cleanups.push(window.electronAPI.onGeminiStreamDone(() => {
+    cleanups.push(window.electronAPI.onLlmStreamDone(() => {
       setChatLoading(false);
     }));
 
     // Stream Error
-    cleanups.push(window.electronAPI.onGeminiStreamError((error) => {
+    cleanups.push(window.electronAPI.onLlmStreamError((error) => {
       setChatLoading(false);
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: "Error: " + String(error) }]);
     }));
@@ -151,7 +151,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
     setChatInput("")
 
     try {
-      await window.electronAPI.streamGeminiChat(message)
+      await window.electronAPI.streamLlmChat(message)
     } catch (err) {
       setChatLoading(false)
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: "Error: " + String(err) }])
@@ -256,7 +256,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
           setChatMessages((msgs) => [...msgs, { role: "user", text: `📷 Analyzing ${count} screenshot${count > 1 ? 's' : ''}...` }]);
           setChatMessages((msgs) => [...msgs, { role: "gemini", text: "..." }]);
 
-          await window.electronAPI.streamGeminiChat(
+          await window.electronAPI.streamLlmChat(
             `Describe ${count > 1 ? 'these images' : 'this image'} and solve any problem in ${count > 1 ? 'them' : 'it'}.`,
             allPaths
           );
