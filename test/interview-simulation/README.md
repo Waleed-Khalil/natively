@@ -68,6 +68,24 @@ Scenarios live in `scenarios/*.json`. Each is a sequence of **turns**, where eve
 }
 ```
 
+### Framing override (`framing`)
+
+Compositional prompts route on a `framing` field — `'interview'` or `'meeting'` — which is normally read from the active mode's template type. The runner doesn't activate a mode (it intentionally doesn't touch the user's SQLite DB), so it defaults to `'interview'`.
+
+To exercise meeting-framed prompts (peer-to-peer tone, decision-criteria clarifies, push-the-meeting-forward follow-up questions, decision/action-item recaps), set `"framing": "meeting"` at the top level of the scenario JSON:
+
+```json
+{
+  "name": "Team Meet — Sprint Planning + Triage",
+  "framing": "meeting",
+  "turns": [ ... ]
+}
+```
+
+The runner monkey-patches `LLMHelper.getPromptFraming()` for the duration of that scenario only, then restores it.
+
+`scenarios/team-meet-sprint-planning.json` is the canonical meeting-mode scenario and is the right place to add expectations that guard the interview→meeting routing (e.g., "clarify must not produce algorithm-constraint questions in meeting framing").
+
 ### Priming (optional)
 
 A scenario can include a `priming` array of synthetic transcript turns fed before the main scenario starts. Use this to anchor the candidate's background so the AI doesn't hallucinate a persona on the opening question.

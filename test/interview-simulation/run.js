@@ -618,12 +618,33 @@ async function main() {
 
     for (const sc of target) {
         const scenario = loadScenario(sc.file);
+
+        // Optional per-scenario framing override. The default for an unset
+        // active mode is 'interview' (legacy behavior), so meeting-framed
+        // scenarios must explicitly request it. We monkey-patch the helper
+        // for the duration of this scenario rather than touching the user's
+        // real `modes` table in the SQLite DB.
+        const originalGetFraming = llmHelper.getPromptFraming?.bind(llmHelper);
+        if (scenario.framing && originalGetFraming) {
+            const requested = scenario.framing;
+            console.log(`[interview-sim] framing override: ${requested}`);
+            llmHelper.getPromptFraming = () => requested;
+        }
+
         // Fresh IntelligenceManager per scenario so context doesn't bleed
         const im = new IntelligenceManager(llmHelper);
         im.initializeLLMs();
 
         const startedAt = new Date().toISOString();
-        const trace = await runScenario(scenario, im);
+        let trace;
+        try {
+            trace = await runScenario(scenario, im);
+        } finally {
+            // Restore so subsequent scenarios in the same run aren't affected.
+            if (scenario.framing && originalGetFraming) {
+                llmHelper.getPromptFraming = originalGetFraming;
+            }
+        }
 
         const expectationResults = evaluateExpectations(scenario, trace);
         const expPassed = expectationResults.filter(r => r.passed).length;

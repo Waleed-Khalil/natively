@@ -184,12 +184,7 @@ interface ElectronAPI {
 
 
   onUndetectableChanged: (callback: (state: boolean) => void) => () => void
-  onGroqFastTextChanged: (callback: (enabled: boolean) => void) => () => void
   onModelChanged: (callback: (modelId: string) => void) => () => void
-
-  // Ollama
-  onOllamaPullProgress: (callback: (data: { status: string; percent: number }) => void) => () => void
-  onOllamaPullComplete: (callback: () => void) => () => void
 
   // Theme API
   getThemeMode: () => Promise<{ mode: 'system' | 'light' | 'dark', resolved: 'light' | 'dark' }>

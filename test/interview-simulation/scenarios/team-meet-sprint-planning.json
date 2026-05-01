@@ -1,0 +1,147 @@
+{
+  "name": "Team Meet — Sprint Planning + Triage",
+  "description": "Backend team sprint-planning meeting that pivots into triage of a duplicate-charge bug. Exercises meeting framing across what_to_say (status / decision / pushback), brainstorm (technical decision + root-cause), follow_up (peer refinement), clarify (scope/ownership), follow_up_questions (push-the-meeting-forward), and recap (decisions + action items).",
+  "framing": "meeting",
+  "context": {
+    "meeting_type": "Sprint planning + bug triage",
+    "user_role": "Senior backend engineer on the payments-infra team",
+    "attendees": "Two peer engineers (Priya = TL, Sam = peer)"
+  },
+  "priming": [
+    { "speaker": "user", "text": "Quick context for myself: I'm a senior backend engineer on the payments-infra team. I'm a peer in this meeting, not being interviewed and not pitching to leadership. My teammates here are Priya (tech lead) and Sam (another senior). We've worked together for about a year. Default tone is direct, peer-to-peer, mildly informal. We make decisions together; nobody needs to prove themselves." },
+    { "speaker": "user", "text": "Active context for this sprint: we're shipping a new request-throttling layer on the payments API, and we just had a duplicate-charge incident last Friday that's still under investigation. I own the throttling work; Sam owns the dedup investigation. Priya is the DRI for the overall sprint plan." },
+    { "speaker": "user", "text": "My position on the upcoming Black Friday ramp decision: I lean toward holding the throttling rollout until January. The soak-test FP rate of 0.02% was measured on synthetic load — Black Friday's traffic shape is a sawtooth burst pattern that our staging test doesn't capture. Any false positive on throttling on peak day becomes a customer-visible failure when our error budget is thinnest. That risk outweighs the sprint-commitment slip. This is my settled view going into the meeting." }
+  ],
+  "turns": [
+    { "speaker": "interviewer", "text": "OK, let's get going. Before we plan the next sprint — quick status on the throttling rollout. Where are we?" },
+    { "action": "what_to_say", "label": "Peer asks for a status update — should be peer-to-peer, factual, not a pitch" },
+    { "speaker": "user", "text": "We're at about 70%. The middleware is deployed to staging, integration tests pass, and I'm waiting on the SRE team to sign off on the new rate-limit metrics dashboard before we ramp prod." },
+    { "speaker": "interviewer", "text": "Good. Now — we have a real decision to make. Do we ramp throttling to 100% before Black Friday, or do we hold the rollout until after the new year? I want to land on this today." },
+    { "action": "what_to_say", "label": "Decision discussion — should surface tradeoff and push toward decision criteria, not perform expertise" },
+    { "speaker": "user", "text": "I'd lean toward holding until January. Black Friday traffic shape is bursty enough that any false positive on throttling becomes a customer-visible failure right when our error budget is thinnest." },
+    { "speaker": "interviewer", "text": "Counterpoint — Sam ran the soak test in staging and the FP rate was 0.02%, well inside our SLO. We're already a sprint behind on the rollout commitment. I think we should ship." },
+    { "action": "follow_up", "intent": "more_confident", "label": "User wants to firm up their pushback — should sharpen, not pivot to agreeing" },
+    { "speaker": "user", "text": "0.02% on staging traffic isn't the same as 0.02% on Black Friday's traffic — the spike shape isn't represented in our soak test. I'd rather defer the rollout commitment than absorb a customer-visible incident on the highest-volume day of the year." },
+    { "speaker": "interviewer", "text": "Fair. Let's table the throttling decision for end of meeting. Switching gears — Sam, where are we on the duplicate-charge bug from last Friday? Anyone have ideas on root cause?" },
+    { "action": "brainstorm", "label": "Root-cause brainstorm — meeting framing should produce hypotheses with cheapest test, NOT fabricate a story" },
+    { "speaker": "user", "text": "If I had to rank, I'd start with the idempotency-key collision angle — we changed the key derivation last sprint and the regression tests don't cover the new code path." },
+    { "speaker": "interviewer", "text": "Walk us through the idempotency-key approach in a bit more depth — what's the actual fix you're thinking?" },
+    { "action": "follow_up", "intent": "elaborate", "label": "Peer asks for more depth — peer-to-peer, not interview elaborate" },
+    { "speaker": "user", "text": "We move the key derivation back to deriving from the (merchant_id, charge_id, attempt_number) tuple instead of the new request-hash approach. That gets us back to the invariant we had before — same logical charge, same key, dedup works." },
+    { "speaker": "interviewer", "text": "Can you sketch what the code change would look like at the handler boundary?" },
+    { "action": "code_hint", "label": "Code hint inside a meeting — should be technical and crisp, peer audience" },
+    { "speaker": "user", "text": "Yeah — basically wrap the handler with a middleware that computes the tuple-based key, pulls the row with SELECT FOR UPDATE on the dedup table, and returns the cached response if the key already has a terminal status." },
+    { "speaker": "interviewer", "text": "OK, I think we have a path. Anything else you want to flag before we wrap?" },
+    { "action": "clarify", "label": "Clarify in meeting framing — should ask scope/ownership/decision question, not algorithm constraints" },
+    { "speaker": "user", "text": "Yeah — is the ask to land the dedup fix this sprint, or are we OK letting it slip into the next one if the throttling rollout shifts?" },
+    { "speaker": "interviewer", "text": "Good question. Dedup fix is this sprint, non-negotiable. Throttling can slip if needed." },
+    { "speaker": "interviewer", "text": "Last thing — anything else you want to ask before we close out?" },
+    { "action": "follow_up_questions", "label": "Follow-up questions in meeting framing — should be push-the-meeting-forward (decision/scope/risk/ownership), NOT 'how does it work at your company'" },
+    { "speaker": "user", "text": "Yeah — who's the DRI on the throttling decision if we can't land it today, and is there a date by which we have to make the call?" },
+    { "speaker": "interviewer", "text": "I'll own the throttling decision. We need to land it by EOW Wednesday or we lose the deploy window." },
+    { "action": "recap", "label": "End-of-meeting recap — should focus on decisions + action items + open questions, not Q&A flow" }
+  ],
+  "expectations": [
+    {
+      "turn": 2,
+      "no_error": true,
+      "min_length": 60,
+      "must_not_match": [
+        "I have \\d+ years",
+        "Thank you for asking",
+        "Great question",
+        "I'm a (senior )?backend engineer with"
+      ],
+      "reason": "Status update in a meeting must be peer-factual, NOT an interview-style self-introduction"
+    },
+    {
+      "turn": 5,
+      "no_error": true,
+      "min_length": 80,
+      "must_match": "(tradeoff|trade-off|risk|constraint|until|criteria|decide|because|January|synthetic|cascading|spike|burst|error budget|customer.visible|outage|validate|production traffic|goes sideways|misfires|one shot)",
+      "must_not_match": [
+        "Thank you for asking",
+        "Great question",
+        "I have \\d+ years",
+        "(I'd|we'd|we should|let's|I would|honestly,?\\s+I'?d) (push (to|for) )?(ship|ramp(ing)?|deploy|roll(ing)? out|go (live|ahead))",
+        "(ship|ramp(ing)?) (it )?(before|on|right before|in time for|ahead of) Black Friday",
+        "lower-risk (move|bet|play|than (holding|deferring|waiting|sitting))",
+        "(holding|deferring|waiting) (it )?(feels|seems|reads|is) riskier",
+        "(worst case|if.{0,40}(wrong|goes sideways|fails)).{0,60}(dial|roll).{0,20}back",
+        "0\\.02% (is solid|is fine|well within|inside our SLO)",
+        "(soak test|the soak) (is solid|proved|showed|confirmed|validated)",
+        "(SRE )?sign-?off is (basically )?(just )?a checkbox",
+        "three weeks to catch"
+      ],
+      "reason": "Decision discussion must surface a tradeoff AND must NOT advocate the counter-stance (ship/ramp before Black Friday). Single-word stance detection isn't reliable because the AI can mention 'hold/January/spike' while arguing the opposite — must_not_match on advocacy phrasings is the load-bearing check."
+    },
+    {
+      "turn": 8,
+      "no_error": true,
+      "must_match": "(hold|defer|January|burst|spike (shape|profile|pattern)|FP rate|0\\.02%|customer-visible|error budget|highest-volume|peak (day|traffic|volume))",
+      "must_not_match": [
+        "(I'd|we'd|we should|let's|I would|honestly,?\\s+I'?d|yeah,?\\s+(I|we) (think|should)|yeah,?\\s+we should) (push (to|for) )?(ship|ramp(ing)?|deploy|roll(ing)? out|go (live|ahead))",
+        "(ship|ramp(ing)?) (it )?(before|on|right before|in time for|ahead of) Black Friday",
+        "(soak test|the soak|0\\.02%) (is solid|is fine|proved|showed|confirmed|validated|well within|inside our SLO)",
+        "lower-risk (move|bet|play|than (holding|deferring|waiting|sitting))",
+        "three weeks to catch",
+        "(worst case|if.{0,40}(wrong|goes sideways|fails)).{0,60}(dial|roll).{0,20}back",
+        "(holding|deferring|waiting) (it )?(feels|seems|reads|is) riskier",
+        "(known issue) (through|during|on|at)"
+      ],
+      "reason": "follow_up with intent=more_confident must SHARPEN the user's just-stated pushback (hold until January because Black Friday spike shape isn't in the soak test), never flip to advocate ship/ramp. Guards against the refinement path silently switching sides — the highest-leverage regression we caught in early runs."
+    },
+    {
+      "turn": 11,
+      "no_error": true,
+      "must_match": "(\\bidempot|\\bdedup|\\bretry|\\brace|\\bduplicate|\\brollback|\\bkey)",
+      "must_not_match": [
+        "^we had a similar",
+        "^the worst (one|bug) I dealt with",
+        "I remember when (we|I) had",
+        "last (year|quarter) we",
+        "(ramp|throttl(ing|e)|black friday|FP rate|false positive).{0,120}(brainstorm|hypothesis|culprit|angle|root cause)",
+        "(brainstorm|hypothesis|culprit|angle|root cause).{0,120}(ramp|throttl(ing|e)|black friday)"
+      ],
+      "reason": "Brainstorm fires on 'anyone have ideas on root cause of the duplicate-charge bug' — must address dedup/idempotency, NOT drift back to the throttling/Black-Friday thread. The topic-drift failure happens when a prior wrong-stance assistant message (about throttling) contaminates brainstorm context. Also guards the standard fabrication regression."
+    },
+    {
+      "turn": 20,
+      "no_error": true,
+      "must_match": "\\?\\s*$",
+      "must_not_match": [
+        "negative values",
+        "edge case",
+        "memory budget",
+        "O\\(",
+        "in-place"
+      ],
+      "reason": "Clarify in meeting framing must produce a scope/ownership/decision-criteria question, NOT an algorithm-constraint question (interview hierarchy leaking into meeting framing)"
+    },
+    {
+      "turn": 24,
+      "no_error": true,
+      "must_match": "(scope|decision|risk|ownership|own|DRI|timing|criteria|deadline|when|who|what would have to be true|in vs|out vs)",
+      "must_not_match": [
+        "what does .{0,30} look like at .* company",
+        "what surprised you",
+        "what you'd change if starting over",
+        "where do you (personally )?spend most of your time"
+      ],
+      "reason": "Follow-up questions in meeting framing must push the meeting forward (decision/scope/risk/ownership), NOT be candidate-curiosity questions about 'how it works at this company' (interview-purpose regression)"
+    },
+    {
+      "turn": 27,
+      "no_error": true,
+      "min_length": 100,
+      "must_match": "(decid|decision|action|own|DRI|next step|open|blocker|EOW|Wednesday|throttl|dedup)",
+      "must_not_match": [
+        "the candidate",
+        "the interviewer",
+        "asked the candidate",
+        "answered with"
+      ],
+      "reason": "Recap in meeting framing must focus on decisions/action-items/open-questions, NOT interview Q&A vocabulary"
+    }
+  ]
+}
