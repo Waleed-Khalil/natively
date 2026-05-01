@@ -1,10 +1,8 @@
 // electron/llm/types.ts
 // Shared types for the Natively LLM system
 
-import { GoogleGenAI } from "@google/genai";
-
 /**
- * Generation configuration for Gemini calls
+ * Generation configuration for Claude calls
  */
 export interface GenerationConfig {
     maxOutputTokens: number;
@@ -42,22 +40,7 @@ export const MODE_CONFIGS = {
 
     followUpQuestions: {
         maxOutputTokens: 65536,
-        temperature: 0.4, // Slightly higher creative freedom
+        temperature: 0.4,
         topP: 0.9,
     } as GenerationConfig,
 } as const;
-
-/**
- * Gemini content structure
- */
-export interface GeminiContent {
-    role: "user" | "model";
-    parts: { text: string }[];
-}
-
-/**
- * LLM client interface for dependency injection
- */
-export interface LLMClient {
-    getGeminiClient(): GoogleGenAI | null;
-}

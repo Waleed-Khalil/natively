@@ -1,20 +1,20 @@
 import { IEmbeddingProvider } from './providers/IEmbeddingProvider';
 import { OpenAIEmbeddingProvider } from './providers/OpenAIEmbeddingProvider';
 import { GeminiEmbeddingProvider } from './providers/GeminiEmbeddingProvider';
-import { OllamaEmbeddingProvider } from './providers/OllamaEmbeddingProvider';
 import { LocalEmbeddingProvider } from './providers/LocalEmbeddingProvider';
 
 export interface AppAPIConfig {
   openaiKey?: string;
   geminiKey?: string;
-  ollamaUrl?: string; // e.g. 'http://localhost:11434'
 }
 
 export class EmbeddingProviderResolver {
   /**
-   * Returns the best available provider.
-   * Runs isAvailable() checks in priority order.
-   * Local model is the unconditional fallback — always last.
+   * Returns the best available embedding provider.
+   * Anthropic does not offer an embeddings API, so we keep OpenAI / Gemini as
+   * cloud options when their keys are present (those keys exist in
+   * CredentialsManager solely for embedding/STT use). Local model is the
+   * unconditional fallback — always last.
    */
   static async resolve(config: AppAPIConfig): Promise<IEmbeddingProvider> {
     const candidates: IEmbeddingProvider[] = [];
@@ -25,8 +25,7 @@ export class EmbeddingProviderResolver {
     if (config.geminiKey) {
       candidates.push(new GeminiEmbeddingProvider(config.geminiKey));
     }
-    
-    candidates.push(new OllamaEmbeddingProvider(config.ollamaUrl || 'http://localhost:11434'));
+
     candidates.push(new LocalEmbeddingProvider()); // always last, always works
 
     for (const provider of candidates) {
@@ -38,8 +37,6 @@ export class EmbeddingProviderResolver {
       console.log(`[EmbeddingProviderResolver] Provider ${provider.name} unavailable, trying next...`);
     }
 
-    // This should never happen since LocalEmbeddingProvider.isAvailable() 
-    // only returns false if the bundled model is corrupted — a fatal install error
     throw new Error('No embedding provider available. The bundled model may be corrupted. Please reinstall.');
   }
 }

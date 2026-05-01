@@ -5,7 +5,7 @@ import { safeHandle } from "./helpers";
 export function registerFollowupEmailHandlers(appState: AppState): void {
   safeHandle("generate-followup-email", async (_, input: any) => {
     try {
-      const { FOLLOWUP_EMAIL_PROMPT, GROQ_FOLLOWUP_EMAIL_PROMPT } = require('../llm/prompts');
+      const { FOLLOWUP_EMAIL_PROMPT } = require('../llm/prompts');
       const { buildFollowUpEmailPromptInput } = require('../utils/emailUtils');
 
       const llmHelper = appState.processingHelper.getLLMHelper();
@@ -13,12 +13,8 @@ export function registerFollowupEmailHandlers(appState: AppState): void {
       // Build the context string from input
       const contextString = buildFollowUpEmailPromptInput(input);
 
-      // Build prompts
-      const geminiPrompt = `${FOLLOWUP_EMAIL_PROMPT}\n\nMEETING DETAILS:\n${contextString}`;
-      const groqPrompt = `${GROQ_FOLLOWUP_EMAIL_PROMPT}\n\nMEETING DETAILS:\n${contextString}`;
-
-      // Use chatWithGemini with alternateGroqMessage for fallback
-      const emailBody = await llmHelper.chatWithGemini(geminiPrompt, undefined, undefined, true, groqPrompt);
+      const prompt = `${FOLLOWUP_EMAIL_PROMPT}\n\nMEETING DETAILS:\n${contextString}`;
+      const emailBody = await llmHelper.chatRaw(prompt, undefined, undefined, true);
 
       return emailBody;
     } catch (error: any) {

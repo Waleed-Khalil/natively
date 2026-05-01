@@ -1,6 +1,12 @@
 /**
  * CredentialsManager - Secure storage for API keys and service account paths
  * Uses Electron's safeStorage API for encryption at rest
+ *
+ * Note: this app uses Claude as the only chat LLM. Non-Claude API keys
+ * (`openaiApiKey`, `geminiApiKey`) are still stored here because OpenAI and
+ * Google APIs are used by STT and embedding providers (Anthropic does not
+ * offer those services). Their chat-LLM setters and IPC handlers have been
+ * removed; only embedding/STT paths read them.
  */
 
 import { app, safeStorage } from 'electron';
@@ -9,31 +15,16 @@ import path from 'path';
 
 const CREDENTIALS_PATH = path.join(app.getPath('userData'), 'credentials.enc');
 
-export interface CustomProvider {
-    id: string;
-    name: string;
-    curlCommand: string;
-}
-
-export interface CurlProvider {
-    id: string;
-    name: string;
-    curlCommand: string;
-    responsePath: string; // e.g. "choices[0].message.content"
-}
-
 export interface StoredCredentials {
-    geminiApiKey?: string;
-    groqApiKey?: string;
-    openaiApiKey?: string;
+    // Chat LLM key (Claude is the only supported chat provider)
     claudeApiKey?: string;
+    // Embedding-only keys (Anthropic has no embeddings API)
+    openaiApiKey?: string;
+    geminiApiKey?: string;
     googleServiceAccountPath?: string;
-    customProviders?: CustomProvider[];
-    curlProviders?: CurlProvider[];
     defaultModel?: string;
-    nativelyApiKey?: string;
     // STT Provider settings
-    sttProvider?: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'natively';
+    sttProvider?: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox';
     groqSttApiKey?: string;
     groqSttModel?: string;
     openAiSttApiKey?: string;
@@ -48,16 +39,8 @@ export interface StoredCredentials {
     aiResponseLanguage?: string;
     // Tavily Search
     tavilyApiKey?: string;
-    // Dynamic Model Discovery – preferred models per provider
-    geminiPreferredModel?: string;
-    groqPreferredModel?: string;
-    openaiPreferredModel?: string;
+    // Dynamic Model Discovery – preferred Claude model
     claudePreferredModel?: string;
-    // Free trial state
-    trialToken?:     string;   // server-issued signed token (natively_trial_…)
-    trialExpiresAt?: string;   // ISO timestamp — local copy for startup check
-    trialStartedAt?: string;   // ISO timestamp
-    trialClaimed?:   boolean;  // set true on first claim, never cleared — hides start card permanently
 }
 
 export class CredentialsManager {
@@ -88,42 +71,32 @@ export class CredentialsManager {
     // Getters
     // =========================================================================
 
-    public getGeminiApiKey(): string | undefined {
-        return this.credentials.geminiApiKey;
+    public getClaudeApiKey(): string | undefined {
+        return this.credentials.claudeApiKey;
     }
 
-    public getGroqApiKey(): string | undefined {
-        return this.credentials.groqApiKey;
-    }
-
+    /**
+     * OpenAI API key — used by OpenAI Whisper STT and OpenAI embedding
+     * provider only. Not used as a chat LLM.
+     */
     public getOpenaiApiKey(): string | undefined {
         return this.credentials.openaiApiKey;
     }
 
-    public getClaudeApiKey(): string | undefined {
-        return this.credentials.claudeApiKey;
+    /**
+     * Gemini API key — used by Gemini embedding provider only. Not used as
+     * a chat LLM.
+     */
+    public getGeminiApiKey(): string | undefined {
+        return this.credentials.geminiApiKey;
     }
 
     public getGoogleServiceAccountPath(): string | undefined {
         return this.credentials.googleServiceAccountPath;
     }
 
-    public getCustomProviders(): CustomProvider[] {
-        return this.credentials.customProviders || [];
-    }
-
-    public getSttProvider(): 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'natively' {
-        const provider = this.credentials.sttProvider || 'none';
-        // Self-heal: if provider is 'none' but a Natively key exists, the user is in a
-        // broken state (key cleared then re-entered via a path that skipped auto-promote,
-        // or credentials restored from backup). Silently restore to 'natively' so STT works.
-        if (provider === 'none' && this.credentials.nativelyApiKey) {
-            this.credentials.sttProvider = 'natively';
-            this.saveCredentials();
-            console.log('[CredentialsManager] Self-healed sttProvider: none→natively (Natively key present)');
-            return 'natively';
-        }
-        return provider;
+    public getSttProvider(): 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' {
+        return this.credentials.sttProvider || 'none';
     }
 
     public getDeepgramApiKey(): string | undefined {
@@ -177,12 +150,9 @@ export class CredentialsManager {
     public getAiResponseLanguage(): string {
         return this.credentials.aiResponseLanguage || 'auto';
     }
-    public getDefaultModel(): string {
-        return this.credentials.defaultModel || 'gemini-3.1-flash-lite-preview';
-    }
 
-    public getNativelyApiKey(): string | undefined {
-        return this.credentials.nativelyApiKey;
+    public getDefaultModel(): string {
+        return this.credentials.defaultModel || 'claude-sonnet-4-6';
     }
 
     public getAllCredentials(): StoredCredentials {
@@ -193,28 +163,28 @@ export class CredentialsManager {
     // Setters (auto-save)
     // =========================================================================
 
-    public setGeminiApiKey(key: string): void {
-        this.credentials.geminiApiKey = key;
-        this.saveCredentials();
-        console.log('[CredentialsManager] Gemini API Key updated');
-    }
-
-    public setGroqApiKey(key: string): void {
-        this.credentials.groqApiKey = key;
-        this.saveCredentials();
-        console.log('[CredentialsManager] Groq API Key updated');
-    }
-
-    public setOpenaiApiKey(key: string): void {
-        this.credentials.openaiApiKey = key;
-        this.saveCredentials();
-        console.log('[CredentialsManager] OpenAI API Key updated');
-    }
-
     public setClaudeApiKey(key: string): void {
         this.credentials.claudeApiKey = key;
         this.saveCredentials();
         console.log('[CredentialsManager] Claude API Key updated');
+    }
+
+    /**
+     * OpenAI key setter — STT/embeddings only.
+     */
+    public setOpenaiApiKey(key: string): void {
+        this.credentials.openaiApiKey = key.trim() || undefined;
+        this.saveCredentials();
+        console.log('[CredentialsManager] OpenAI API Key (STT/embedding) updated');
+    }
+
+    /**
+     * Gemini key setter — embeddings only.
+     */
+    public setGeminiApiKey(key: string): void {
+        this.credentials.geminiApiKey = key.trim() || undefined;
+        this.saveCredentials();
+        console.log('[CredentialsManager] Gemini API Key (embedding) updated');
     }
 
     public setGoogleServiceAccountPath(filePath: string): void {
@@ -223,7 +193,7 @@ export class CredentialsManager {
         console.log('[CredentialsManager] Google Service Account path updated');
     }
 
-    public setSttProvider(provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'natively'): void {
+    public setSttProvider(provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox'): void {
         this.credentials.sttProvider = provider;
         this.saveCredentials();
         console.log(`[CredentialsManager] STT Provider set to: ${provider}`);
@@ -290,7 +260,6 @@ export class CredentialsManager {
     }
 
     public setTavilyApiKey(key: string): void {
-        // Store undefined (not empty string) when removing, so hasKey() checks stay consistent
         this.credentials.tavilyApiKey = key.trim() || undefined;
         this.saveCredentials();
         console.log('[CredentialsManager] Tavily API Key updated');
@@ -307,144 +276,21 @@ export class CredentialsManager {
         this.saveCredentials();
         console.log(`[CredentialsManager] AI Response Language set to: ${language}`);
     }
+
     public setDefaultModel(model: string): void {
         this.credentials.defaultModel = model;
         this.saveCredentials();
         console.log(`[CredentialsManager] Default Model set to: ${model}`);
     }
 
-    public setNativelyApiKey(key: string): void {
-        const trimmed = key.trim();
-        this.credentials.nativelyApiKey = trimmed || undefined;
+    public getPreferredModel(): string | undefined {
+        return this.credentials.claudePreferredModel;
+    }
 
-        if (trimmed) {
-            // Auto-promote natively to default model unless user already chose a non-Gemini/Groq model
-            const current = this.credentials.defaultModel || '';
-            const isAutoDefault = !current
-                || current.startsWith('gemini-')
-                || current.startsWith('llama-')
-                || current.startsWith('mixtral-')
-                || current.startsWith('gemma-')
-                || current === 'gemini'
-                || current === 'llama';
-            if (isAutoDefault) {
-                this.credentials.defaultModel = 'natively';
-                console.log('[CredentialsManager] Auto-set default model to natively');
-            }
-
-            // Auto-promote natively STT if still on 'none' or the default Google STT
-            if (!this.credentials.sttProvider || this.credentials.sttProvider === 'none' || this.credentials.sttProvider === 'google') {
-                this.credentials.sttProvider = 'natively';
-                console.log('[CredentialsManager] Auto-set STT provider to natively');
-            }
-        } else {
-            // Key cleared — revert natively-auto-set defaults back to safe fallbacks
-            if (this.credentials.defaultModel === 'natively') {
-                this.credentials.defaultModel = 'gemini-3.1-flash-lite-preview';
-                console.log('[CredentialsManager] Natively key cleared — reset default model to Gemini Flash');
-            }
-            if (this.credentials.sttProvider === 'natively') {
-                this.credentials.sttProvider = 'none';
-                console.log('[CredentialsManager] Natively key cleared — reset STT provider to none');
-            }
-        }
-
+    public setPreferredModel(modelId: string): void {
+        this.credentials.claudePreferredModel = modelId;
         this.saveCredentials();
-        console.log('[CredentialsManager] Natively API Key updated');
-    }
-
-    public getPreferredModel(provider: 'gemini' | 'groq' | 'openai' | 'claude'): string | undefined {
-        const key = `${provider}PreferredModel` as keyof StoredCredentials;
-        return this.credentials[key] as string | undefined;
-    }
-
-    public setPreferredModel(provider: 'gemini' | 'groq' | 'openai' | 'claude', modelId: string): void {
-        const key = `${provider}PreferredModel` as keyof StoredCredentials;
-        (this.credentials as any)[key] = modelId;
-        this.saveCredentials();
-        console.log(`[CredentialsManager] ${provider} preferred model set to: ${modelId}`);
-    }
-
-    public saveCustomProvider(provider: CustomProvider): void {
-        if (!this.credentials.customProviders) {
-            this.credentials.customProviders = [];
-        }
-        // Check if exists, update if so
-        const index = this.credentials.customProviders.findIndex(p => p.id === provider.id);
-        if (index !== -1) {
-            this.credentials.customProviders[index] = provider;
-        } else {
-            this.credentials.customProviders.push(provider);
-        }
-        this.saveCredentials();
-        console.log(`[CredentialsManager] Custom Provider '${provider.name}' saved`);
-    }
-
-    public deleteCustomProvider(id: string): void {
-        if (!this.credentials.customProviders) return;
-        this.credentials.customProviders = this.credentials.customProviders.filter(p => p.id !== id);
-        this.saveCredentials();
-        console.log(`[CredentialsManager] Custom Provider '${id}' deleted`);
-    }
-
-    public getCurlProviders(): CurlProvider[] {
-        return this.credentials.curlProviders || [];
-    }
-
-    public saveCurlProvider(provider: CurlProvider): void {
-        if (!this.credentials.curlProviders) {
-            this.credentials.curlProviders = [];
-        }
-        const index = this.credentials.curlProviders.findIndex(p => p.id === provider.id);
-        if (index !== -1) {
-            this.credentials.curlProviders[index] = provider;
-        } else {
-            this.credentials.curlProviders.push(provider);
-        }
-        this.saveCredentials();
-        console.log(`[CredentialsManager] Curl Provider '${provider.name}' saved`);
-    }
-
-    public deleteCurlProvider(id: string): void {
-        if (!this.credentials.curlProviders) return;
-        this.credentials.curlProviders = this.credentials.curlProviders.filter(p => p.id !== id);
-        this.saveCredentials();
-        console.log(`[CredentialsManager] Curl Provider '${id}' deleted`);
-    }
-
-    // ── Free Trial ─────────────────────────────────────────────
-    public getTrialToken(): string | undefined {
-        return this.credentials.trialToken;
-    }
-
-    public getTrialExpiresAt(): string | undefined {
-        return this.credentials.trialExpiresAt;
-    }
-
-    public getTrialStartedAt(): string | undefined {
-        return this.credentials.trialStartedAt;
-    }
-
-    public getTrialClaimed(): boolean {
-        return this.credentials.trialClaimed === true;
-    }
-
-    public setTrialToken(token: string, expiresAt: string, startedAt: string): void {
-        this.credentials.trialToken     = token;
-        this.credentials.trialExpiresAt = expiresAt;
-        this.credentials.trialStartedAt = startedAt;
-        this.credentials.trialClaimed   = true;
-        this.saveCredentials();
-        console.log('[CredentialsManager] Trial token stored, expires:', expiresAt);
-    }
-
-    public clearTrialToken(): void {
-        delete this.credentials.trialToken;
-        delete this.credentials.trialExpiresAt;
-        delete this.credentials.trialStartedAt;
-        // trialClaimed intentionally NOT cleared — keeps start card hidden after token wipe
-        this.saveCredentials();
-        console.log('[CredentialsManager] Trial token cleared');
+        console.log(`[CredentialsManager] Claude preferred model set to: ${modelId}`);
     }
 
     public clearAll(): void {
@@ -464,7 +310,6 @@ export class CredentialsManager {
      * Called on app quit and credential clear.
      */
     public scrubMemory(): void {
-        // Overwrite each string field with empty before discarding
         for (const key of Object.keys(this.credentials) as (keyof StoredCredentials)[]) {
             const val = this.credentials[key];
             if (typeof val === 'string') {
@@ -483,7 +328,6 @@ export class CredentialsManager {
         try {
             if (!safeStorage.isEncryptionAvailable()) {
                 console.warn('[CredentialsManager] Encryption not available, falling back to plaintext');
-                // Fallback: save as plaintext (less secure, but functional)
                 const plainPath = CREDENTIALS_PATH + '.json';
                 const tmpPlain = plainPath + '.tmp';
                 fs.writeFileSync(tmpPlain, JSON.stringify(this.credentials));
@@ -503,7 +347,6 @@ export class CredentialsManager {
 
     private loadCredentials(): void {
         try {
-            // Try encrypted file first
             if (fs.existsSync(CREDENTIALS_PATH)) {
                 if (!safeStorage.isEncryptionAvailable()) {
                     console.warn('[CredentialsManager] Encryption not available for load');
@@ -525,7 +368,6 @@ export class CredentialsManager {
                     this.credentials = {};
                 }
 
-                // Clean up any leftover plaintext fallback file to eliminate the data leak
                 const plaintextPath = CREDENTIALS_PATH + '.json';
                 if (fs.existsSync(plaintextPath)) {
                     try {
@@ -538,7 +380,6 @@ export class CredentialsManager {
                 return;
             }
 
-            // Fallback: try plaintext file
             const plaintextPath = CREDENTIALS_PATH + '.json';
             if (fs.existsSync(plaintextPath)) {
                 const data = fs.readFileSync(plaintextPath, 'utf-8');

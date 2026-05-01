@@ -5,7 +5,7 @@
 import { SessionTracker, TranscriptSegment } from './SessionTracker';
 import { LLMHelper } from './LLMHelper';
 import { DatabaseManager, Meeting } from './db/DatabaseManager';
-import { GROQ_TITLE_PROMPT, GROQ_SUMMARY_JSON_PROMPT } from './llm';
+import { MEETING_TITLE_PROMPT, MEETING_SUMMARY_JSON_PROMPT } from './llm';
 const crypto = require('crypto');
 
 export class MeetingPersistence {
@@ -109,10 +109,8 @@ export class MeetingPersistence {
         try {
             // Generate Title (only if not set by calendar)
             if (!metadata || !metadata.title) {
-                const titlePrompt = `Generate a concise 3-6 word title for this meeting context. Output ONLY the title text. Do not use quotes or conversational filler.`;
-                const groqTitlePrompt = GROQ_TITLE_PROMPT;
-
-                const generatedTitle = await this.llmHelper.generateMeetingSummary(titlePrompt, data.context.substring(0, 5000), groqTitlePrompt);
+                const titlePrompt = MEETING_TITLE_PROMPT;
+                const generatedTitle = await this.llmHelper.generateMeetingSummary(titlePrompt, data.context.substring(0, 5000));
                 if (generatedTitle) title = generatedTitle.replace(/["*]/g, '').trim();
             }
 
@@ -150,7 +148,6 @@ export class MeetingPersistence {
 STYLE: Calm, neutral, professional, skim-friendly. Short bullets, no sub-bullets.`;
 
                 let summaryPrompt: string;
-                let groqSummaryPrompt: string;
 
                 if (modeNoteSections.length > 0) {
                     // Mode-specific structured notes — sections as object with title keys
@@ -190,7 +187,6 @@ ${sectionKeys}
   }
 }`;
                     console.log('[MeetingPersistence] Using mode-specific prompt with sections:', modeNoteSections.map(s => s.title));
-                    groqSummaryPrompt = summaryPrompt;
                 } else {
                     // Default generic notes
                     summaryPrompt = `You are a silent meeting summarizer. Convert this conversation into concise internal meeting notes.
@@ -203,10 +199,11 @@ Return ONLY valid JSON (no markdown code blocks):
   "keyPoints": ["3-6 specific bullets - each = one concrete topic or point discussed"],
   "actionItems": ["specific next steps, assigned tasks, or implied follow-ups. If absolutely none found, return empty array"]
 }`;
-                    groqSummaryPrompt = GROQ_SUMMARY_JSON_PROMPT;
+                    // Use the canonical meeting-summary prompt for the generic case
+                    summaryPrompt = MEETING_SUMMARY_JSON_PROMPT;
                 }
 
-                const generatedSummary = await this.llmHelper.generateMeetingSummary(summaryPrompt, data.context.substring(0, 10000), groqSummaryPrompt);
+                const generatedSummary = await this.llmHelper.generateMeetingSummary(summaryPrompt, data.context.substring(0, 10000));
 
                 if (generatedSummary) {
                     // Strip markdown fences if present

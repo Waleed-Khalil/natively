@@ -200,7 +200,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
     }, []);
 
     // Model Selection State
-    const [currentModel, setCurrentModel] = useState<string>('gemini-3-flash-preview');
+    const [currentModel, setCurrentModel] = useState<string>('claude-sonnet-4-6');
 
     // Dynamic Action Button Mode (Recap vs Brainstorm)
     const [actionButtonMode, setActionButtonMode] = useState<'recap' | 'brainstorm'>('recap');
@@ -1137,10 +1137,10 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
         const cleanups: (() => void)[] = [];
 
         // Stream Token
-        cleanups.push(window.electronAPI.onGeminiStreamToken((token) => {
+        cleanups.push(window.electronAPI.onLlmStreamToken((token) => {
             // Guard: if this token is the negotiation coaching JSON sentinel, accumulate it
             // silently. The JSON is always emitted as a single complete `yield JSON.stringify(...)`
-            // call, so one parse attempt is sufficient. The onGeminiStreamDone handler will
+            // call, so one parse attempt is sufficient. The onLlmStreamDone handler will
             // detect the accumulated JSON and render the proper card UI — we just prevent the
             // raw JSON characters from ever appearing in the chat bubble.
             try {
@@ -1183,7 +1183,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
         }));
 
         // Stream Done
-        cleanups.push(window.electronAPI.onGeminiStreamDone(() => {
+        cleanups.push(window.electronAPI.onLlmStreamDone(() => {
             setIsProcessing(false);
 
             // Calculate latency if we have a start time
@@ -1225,7 +1225,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
         }));
 
         // Stream Error
-        cleanups.push(window.electronAPI.onGeminiStreamError((error) => {
+        cleanups.push(window.electronAPI.onLlmStreamError((error) => {
             setIsProcessing(false);
             requestStartTimeRef.current = null; // Clear timer on error
             setMessages(prev => {
@@ -1258,7 +1258,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
         // JIT RAG Stream listeners (for live meeting RAG responses)
         if (window.electronAPI.onRAGStreamChunk) {
             cleanups.push(window.electronAPI.onRAGStreamChunk((data: { chunk: string }) => {
-                // Same guard as onGeminiStreamToken: suppress raw JSON if this chunk is
+                // Same guard as onLlmStreamToken: suppress raw JSON if this chunk is
                 // the negotiation coaching sentinel. The onRAGStreamComplete handler will
                 // convert it to the proper card UI.
                 try {
@@ -1408,7 +1408,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
 
             // Pass imagePath if attached, AND conversation context
             requestStartTimeRef.current = Date.now();
-            await window.electronAPI.streamGeminiChat(
+            await window.electronAPI.streamLlmChat(
                 userText || 'Analyze this screenshot',
                 currentAttachments.length > 0 ? currentAttachments.map(s => s.path) : undefined,
                 conversationContext // Pass context so "answer this" works
@@ -2367,11 +2367,6 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({ onEndMeeting, ove
                                             <span className="truncate max-w-[150px]">
                                                 {(() => {
                                                     const m = currentModel;
-                                                    if (m.startsWith('ollama-')) return m.replace('ollama-', '');
-                                                    if (m === 'gemini-3.1-flash-lite-preview') return 'Gemini 3.1 Flash';
-                                                    if (m === 'gemini-3.1-pro-preview') return 'Gemini 3.1 Pro';
-                                                    if (m === 'llama-3.3-70b-versatile') return 'Groq Llama 3.3';
-                                                    if (m === 'gpt-5.4') return 'GPT 5.4';
                                                     if (m === 'claude-sonnet-4-6') return 'Sonnet 4.6';
                                                     if (m === 'claude-haiku-4-5-20251001') return 'Haiku 4.5';
                                                     return m;

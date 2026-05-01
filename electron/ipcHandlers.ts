@@ -17,7 +17,6 @@ import { registerCalendarHandlers } from "./ipc/calendar";
 import { registerModelSelectorWindowHandlers } from "./ipc/modelSelectorWindow";
 import { registerDonationHandlers } from "./ipc/donations";
 import { registerNativeAudioHandlers } from "./ipc/nativeAudio";
-import { registerCustomProviderHandlers } from "./ipc/customProvider";
 import { registerModelDiscoveryHandlers } from "./ipc/modelDiscovery";
 import { registerSttHandlers } from "./ipc/stt";
 import { registerLlmModelHandlers } from "./ipc/llmModel";
@@ -26,8 +25,6 @@ import { registerIntelligenceModeHandlers } from "./ipc/intelligenceMode";
 import { registerModesHandlers } from "./ipc/modes";
 import { registerAutopilotHandlers } from "./ipc/autopilot";
 import { registerLlmConfigHandlers } from "./ipc/llmConfig";
-import { registerNativelyApiHandlers } from "./ipc/nativelyApi";
-import { registerFreeTrialHandlers } from "./ipc/freeTrial";
 import { registerFollowupEmailHandlers } from "./ipc/followupEmail";
 import { registerRagHandlers } from "./ipc/rag";
 import { registerProfileHandlers } from "./ipc/profile";
@@ -325,9 +322,9 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  safeHandle("gemini-chat", async (event, message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean }) => {
+  safeHandle("llm-chat", async (event, message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean }) => {
     try {
-      const result = await appState.processingHelper.getLLMHelper().chatWithGemini(message, imagePaths, context, options?.skipSystemPrompt);
+      const result = await appState.processingHelper.getLLMHelper().chatRaw(message, imagePaths, context, options?.skipSystemPrompt);
 
       console.log(`[IPC] gemini - chat response: `, result ? result.substring(0, 50) : "(empty)");
 
@@ -360,7 +357,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
       return result;
     } catch (error: any) {
-      // console.error("Error in gemini-chat handler:", error);
+      // console.error("Error in llm-chat handler:", error);
       throw error;
     }
   });
@@ -371,9 +368,9 @@ export function initializeIpcHandlers(appState: AppState): void {
   // that a newer stream has taken over.
   let _chatStreamId = 0;
 
-  safeHandle("gemini-chat-stream", async (event, message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean, ignoreKnowledgeMode?: boolean }) => {
+  safeHandle("llm-chat-stream", async (event, message: string, imagePaths?: string[], context?: string, options?: { skipSystemPrompt?: boolean, ignoreKnowledgeMode?: boolean }) => {
     try {
-      console.log("[IPC] gemini-chat-stream started using LLMHelper.streamChat");
+      console.log("[IPC] llm-chat-stream started using LLMHelper.streamChat");
       const llmHelper = appState.processingHelper.getLLMHelper();
 
       // Claim a new stream ID — any prior stream will detect this and stop emitting.
@@ -412,16 +409,16 @@ export function initializeIpcHandlers(appState: AppState): void {
         for await (const token of stream) {
           // Bail if a newer stream has taken over (user triggered a new request)
           if (_chatStreamId !== myStreamId) {
-            console.log(`[IPC] gemini-chat-stream ${myStreamId} superseded by ${_chatStreamId}, stopping.`);
+            console.log(`[IPC] llm-chat-stream ${myStreamId} superseded by ${_chatStreamId}, stopping.`);
             return null;
           }
-          event.sender.send("gemini-stream-token", token);
+          event.sender.send("llm-stream-token", token);
           fullResponse += token;
         }
 
         // Final check: only send done if we are still the active stream
         if (_chatStreamId === myStreamId) {
-          event.sender.send("gemini-stream-done");
+          event.sender.send("llm-stream-done");
 
           // Update IntelligenceManager with ASSISTANT message after completion
           if (fullResponse.trim().length > 0) {
@@ -434,14 +431,14 @@ export function initializeIpcHandlers(appState: AppState): void {
       } catch (streamError: any) {
         console.error("[IPC] Streaming error:", streamError);
         if (_chatStreamId === myStreamId) {
-          event.sender.send("gemini-stream-error", streamError.message || "Unknown streaming error");
+          event.sender.send("llm-stream-error", streamError.message || "Unknown streaming error");
         }
       }
 
       return null; // Return null as data is sent via events
 
     } catch (error: any) {
-      console.error("[IPC] Error in gemini-chat-stream setup:", error);
+      console.error("[IPC] Error in llm-chat-stream setup:", error);
       throw error;
     }
   });
@@ -660,12 +657,6 @@ export function initializeIpcHandlers(appState: AppState): void {
   });
 
   registerLlmConfigHandlers(appState);
-
-  registerNativelyApiHandlers(appState);
-
-  registerFreeTrialHandlers(appState);
-
-  registerCustomProviderHandlers(appState);
 
   registerModelDiscoveryHandlers();
 

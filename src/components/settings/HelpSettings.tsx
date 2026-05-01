@@ -5,7 +5,6 @@ import {
     RefreshCw, ExternalLink, Volume2, Globe, Brain, Cpu, Calendar, Star, CreditCard, Pencil, Lightbulb,
     ArrowRight, LayoutGrid
 } from 'lucide-react';
-import { SiOpenai, SiGoogle } from 'react-icons/si';
 import { useShortcuts } from '../../hooks/useShortcuts';
 import { useResolvedTheme } from '../../hooks/useResolvedTheme';
 import {
@@ -240,112 +239,20 @@ export const HelpSettings: React.FC<{ onNavigate?: (tab: string) => void }> = ({
                     </div>
                 </AccordionSection>
 
-                <AccordionSection title="3. AI Providers & Prompt Engine" icon={<Key className="w-4 h-4" />}>
+                <AccordionSection title="3. AI Provider" icon={<Key className="w-4 h-4" />}>
                      <div className="space-y-4">
-                        <p className="text-sm">Natively uses Large Language Models (LLMs) to reason about your screen and audio context. You can configure cloud providers, local models, or fully custom endpoints.</p>
+                        <p className="text-sm">Natively uses <strong>Anthropic Claude</strong> as its only chat LLM. Bring your own API key.</p>
 
                         <div className="space-y-3 pt-2">
-                             <h4 className="font-bold text-lg text-text-primary border-b border-border-subtle pb-2">1. Standard Cloud Providers</h4>
-                             
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                 <div className="p-3 rounded-xl border bg-bg-item-surface border-border-subtle hover:border-border-muted transition-colors">
-                                     <h5 className="font-semibold text-sm text-text-primary flex justify-between items-center mb-1">
-                                         <span className="flex items-center gap-2">
-                                            <img src="https://groq.com/favicon.svg" alt="Groq" className="w-4 h-4 object-contain" /> Groq
-                                         </span>
-                                         <button onClick={() => { (window as any).electronAPI?.openExternal('https://console.groq.com/keys') }} className="text-accent-primary hover:underline text-[10px] flex items-center gap-1"><ExternalLink size={10} /> Get Key</button>
-                                     </h5>
-                                     <p className="text-[11px] opacity-80 mb-2">Ultra-fast inference using LPU hardware. Default model: <strong>llama-3.3-70b-versatile</strong>.</p>
-                                     <span className={kbdClass}>gsk_...</span>
-                                 </div>
-                                 <div className="p-3 rounded-xl border bg-bg-item-surface border-border-subtle hover:border-border-muted transition-colors">
-                                     <h5 className="font-semibold text-sm text-text-primary flex justify-between items-center mb-1">
-                                         <span className="flex items-center gap-2">
-                                             <SiOpenai className={`w-3.5 h-3.5 ${isLight ? 'text-black' : 'text-white'}`} /> OpenAI
-                                         </span>
-                                         <button onClick={() => { (window as any).electronAPI?.openExternal('https://platform.openai.com/api-keys') }} className="text-accent-primary hover:underline text-[10px] flex items-center gap-1"><ExternalLink size={10} /> Get Key</button>
-                                     </h5>
-                                     <p className="text-[11px] opacity-80 mb-2">Industry standard pipeline. Default models: <strong>gpt-5.4-mini</strong> & <strong>gpt-5.4</strong>.</p>
-                                     <span className={kbdClass}>sk-proj-...</span>
-                                 </div>
-                                 <div className="p-3 rounded-xl border bg-bg-item-surface border-border-subtle hover:border-border-muted transition-colors">
-                                     <h5 className="font-semibold text-sm text-text-primary flex justify-between items-center mb-1">
-                                         <span className="flex items-center gap-2">
-                                            <img src="https://cdn.simpleicons.org/anthropic/000000" style={{filter: isLight ? '' : 'invert(1)'}} alt="Anthropic" className="w-4 h-4 object-contain" /> Anthropic
-                                         </span>
-                                         <button onClick={() => { (window as any).electronAPI?.openExternal('https://console.anthropic.com/settings/keys') }} className="text-accent-primary hover:underline text-[10px] flex items-center gap-1"><ExternalLink size={10} /> Get Key</button>
-                                     </h5>
-                                     <p className="text-[11px] opacity-80 mb-2">Superior coding baseline parameters. Default: <strong>claude-4.6-sonnet</strong>.</p>
-                                     <span className={kbdClass}>sk-ant-...</span>
-                                 </div>
-                                 <div className="p-3 rounded-xl border bg-bg-item-surface border-border-subtle hover:border-border-muted transition-colors">
-                                     <h5 className="font-semibold text-sm text-text-primary flex justify-between items-center mb-1">
-                                         <span className="flex items-center gap-2">
-                                            <SiGoogle className="w-3.5 h-3.5 text-blue-500" /> Google Gemini
-                                         </span>
-                                         <button onClick={() => { (window as any).electronAPI?.openExternal('https://aistudio.google.com/app/apikey') }} className="text-accent-primary hover:underline text-[10px] flex items-center gap-1"><ExternalLink size={10} /> Get Key</button>
-                                     </h5>
-                                     <p className="text-[11px] opacity-80 mb-2">Immense contextual window. Default model: <strong>gemini-3.1-pro</strong>.</p>
-                                     <span className={kbdClass}>AIzaSy...</span>
-                                 </div>
-                             </div>
-
-                             <div className="mt-2 bg-bg-item-surface p-4 rounded-xl border border-border-subtle shadow-sm flex gap-3">
-                                 <div className="w-8 h-8 rounded-lg bg-bg-elevated border border-border-subtle flex items-center justify-center shrink-0">
-                                     <Zap className="w-4 h-4 text-accent-primary" />
-                                 </div>
-                                 <p className="text-[11px] text-text-secondary leading-relaxed mt-0.5">
-                                     <strong className="text-text-primary font-bold">Autonomous Registry Sync:</strong> Natively utilizes a 14-day background sync clock (<span className="font-mono bg-bg-elevated border border-border-muted px-1.5 py-0.5 rounded text-[10px] text-text-primary shadow-[inset_0_-1px_0_rgba(0,0,0,0.1)]">v2/api/models</span>) to silently poll upstream APIs. If Anthropic or OpenAI drops a new flagship architecture (e.g. GPT-5), your app dynamically absorbs it into the UI dropdown automatically.
-                                 </p>
-                             </div>
-                             
-                             <div className="p-4 mt-2 rounded-xl border border-border-subtle bg-bg-item-surface">
-                                 <h5 className="font-semibold text-[13px] text-text-primary mb-1">Configuring the Active Model Engine</h5>
-                                 <p className="text-[11px] text-text-secondary leading-relaxed">
-                                     Inside the Launcher UI (above the start button), you can hot-swap your <strong>Active Model</strong>. This dictation is extremely important—it determines the active core reasoning engine. If set to <strong>claude-3-5-sonnet</strong>, the intelligence agent uses Anthropic infrastructure exclusively for screen analysis. Switch to <strong>llama3:8b</strong> beneath it, and the architecture instantly reverts to generating responses via your offline GPU pipeline.
-                                 </p>
-                             </div>
-                        </div>
-
-                        <div className="space-y-3 pt-4">
-                             <h4 className="font-bold text-lg text-text-primary border-b border-border-subtle pb-2">2. Local Models (Ollama)</h4>
-                             <div className="p-4 rounded-xl border bg-bg-item-surface border-border-subtle space-y-3">
-                                 <p className="text-xs opacity-90 leading-relaxed text-text-secondary">
-                                     You can run Natively completely offline with 100% data privacy using Ollama. Natively automatically scans <span className={kbdClass}>http://localhost:11434</span> for active models.
-                                 </p>
-                                 <ol className="list-decimal pl-4 text-xs space-y-2 opacity-90 text-text-secondary">
-                                     <li>Download Ollama locally via <button onClick={() => { (window as any).electronAPI?.openExternal('https://ollama.com/download') }} className="text-accent-primary hover:underline inline-flex items-center gap-1 font-medium">ollama.com <ExternalLink size={10} /></button></li>
-                                     <li>
-                                        Open Terminal and run our recommended 8B parameter instruction model: 
-                                        <div className="mt-1 bg-bg-input p-2 rounded border border-border-subtle font-mono text-[11px]">ollama run llama3:8b</div>
-                                     </li>
-                                     <li>Alternatively, for faster generation without GPU, use Microsoft's smaller model:
-                                        <div className="mt-1 bg-bg-input p-2 rounded border border-border-subtle font-mono text-[11px]">ollama run phi3</div>
-                                     </li>
-                                     <li>Return to Natively's AI Providers overlay, and you will see your Local models ready for usage.</li>
-                                 </ol>
-                             </div>
-                        </div>
-
-                        <div className="space-y-3 pt-4">
-                             <h4 className="font-bold text-lg text-text-primary border-b border-border-subtle pb-2">3. Custom Providers</h4>
-                             <div className="p-4 rounded-xl border bg-bg-item-surface border-border-subtle space-y-3">
-                                 <p className="text-xs opacity-90 leading-relaxed text-text-secondary">
-                                     Use Custom Providers to hook up any standard external LLM router (like OpenRouter, LMStudio, or proprietary company endpoints). Create a new provider using a cURL command template.
-                                 </p>
-                                 <div className="bg-bg-input p-3 rounded-lg border border-border-subtle space-y-2">
-                                     <div className="text-[11px] font-mono text-text-secondary">
-                                         <div className="text-purple-400">curl</div> <span className="text-blue-400">https://openrouter.ai/api/v1/chat/completions</span> \
-                                         <br/>  -H <span className="text-green-400">"Authorization: Bearer YOUR_KEY"</span> \
-                                         <br/> ...
-                                     </div>
-                                 </div>
-                                 <div className="flex items-start gap-2 mt-2">
-                                     <div className="w-5 h-5 rounded bg-orange-500/20 text-orange-500 flex items-center justify-center shrink-0 mt-0.5"><Zap size={10} /></div>
-                                     <div className="text-xs text-text-secondary leading-relaxed">
-                                         <strong>Crucial: The Response Path.</strong> You must inform Natively how to parse the JSON text back. Deeply nested outputs must define the exact path array. For OpenAI/OpenRouter compliant endpoints, this is strictly: <span className={kbdClass}>choices[0].message.content</span>.
-                                     </div>
-                                 </div>
+                             <div className="p-3 rounded-xl border bg-bg-item-surface border-border-subtle hover:border-border-muted transition-colors">
+                                 <h5 className="font-semibold text-sm text-text-primary flex justify-between items-center mb-1">
+                                     <span className="flex items-center gap-2">
+                                        <img src="https://cdn.simpleicons.org/anthropic/000000" style={{filter: isLight ? '' : 'invert(1)'}} alt="Anthropic" className="w-4 h-4 object-contain" /> Anthropic
+                                     </span>
+                                     <button onClick={() => { (window as any).electronAPI?.openExternal('https://console.anthropic.com/settings/keys') }} className="text-accent-primary hover:underline text-[10px] flex items-center gap-1"><ExternalLink size={10} /> Get Key</button>
+                                 </h5>
+                                 <p className="text-[11px] opacity-80 mb-2">Default model: <strong>claude-sonnet-4-6</strong>. Fast variant: <strong>claude-haiku-4-5</strong>.</p>
+                                 <span className={kbdClass}>sk-ant-...</span>
                              </div>
                         </div>
 

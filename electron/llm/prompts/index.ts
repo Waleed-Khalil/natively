@@ -5,10 +5,9 @@
  * `PromptContext` (framing + provider + optional voice/temporal/notes) and
  * returns the final system prompt string.
  *
- * All nine action types now go through the compositional path. The legacy
- * per-action × per-provider string constants in prompts.ts (CLAUDE_*,
- * GROQ_*, OPENAI_*, UNIVERSAL_*, CUSTOM_*) are slated for cleanup once all
- * downstream callers are migrated.
+ * All nine action types go through the compositional path. The codebase
+ * targets a single provider (Claude); per-provider variants have been
+ * removed.
  */
 
 export type { PromptContext, Framing, Provider } from './types';
