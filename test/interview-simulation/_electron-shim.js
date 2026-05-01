@@ -34,17 +34,13 @@ function resolveUserDataPath() {
     return baseFor('Natively');
 }
 
-// Detect whether we're running inside the real electron runtime
-// (ELECTRON_RUN_AS_NODE=1 plus the binary). If so, do nothing — let the real
-// electron module resolve so safeStorage etc. work.
-const insideElectron = !!process.versions.electron;
-if (insideElectron) {
-    module.exports = { resolveUserDataPath, usingRealElectron: true };
-    return;
-}
-
-// Otherwise inject a stub. safeStorage.encryptString/decryptString won't work,
-// so the simulator will need to fall back to env-var keys when the shim is active.
+// Always install the shim — under `ELECTRON_RUN_AS_NODE=1`, `require('electron')`
+// returns just the binary-path string, not the real app/safeStorage objects.
+// (Same constraint that scripts/voice-profile/_electron-shim.js solves.)
+//
+// safeStorage isn't available outside a full electron runtime, so the simulator
+// can't transparently decrypt CredentialsManager. The runner must fall back to
+// env-var API keys when this shim is active.
 const electronMock = {
     app: {
         getPath(name) {
@@ -55,8 +51,8 @@ const electronMock = {
     },
     safeStorage: {
         isEncryptionAvailable() { return false; },
-        encryptString() { throw new Error('[interview-sim shim] safeStorage unavailable in plain-node mode'); },
-        decryptString() { throw new Error('[interview-sim shim] safeStorage unavailable in plain-node mode'); },
+        encryptString() { throw new Error('[interview-sim shim] safeStorage unavailable in CLI mode — use env-var keys'); },
+        decryptString() { throw new Error('[interview-sim shim] safeStorage unavailable in CLI mode — use env-var keys'); },
     },
 };
 

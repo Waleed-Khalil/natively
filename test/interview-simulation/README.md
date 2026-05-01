@@ -19,12 +19,21 @@ Reports land in `test/interview-simulation/results/<timestamp>-<scenario-id>.md`
 
 ## Credentials
 
-The runner pulls API keys in this order:
+The runner reads API keys from environment variables — at least one of:
 
-1. **Environment variables** — `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `CLAUDE_API_KEY`. If any are set, env wins.
-2. **CredentialsManager** — when run via `npm run simulate:interview` (which uses `ELECTRON_RUN_AS_NODE=1 electron`), the saved keys from your local app install are decrypted and used.
+- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
+- `OPENAI_API_KEY`
+- `CLAUDE_API_KEY`
 
-You need at least one provider key. Gemini is the cheapest/fastest path; Claude or GPT-4 will give you higher-fidelity responses to evaluate.
+```bash
+export GEMINI_API_KEY=...
+npm run simulate:interview
+```
+
+**Why not the saved keys from the app?** CredentialsManager uses Electron's `safeStorage`, which only works inside a full Electron app runtime. The simulator runs in CLI mode (`ELECTRON_RUN_AS_NODE=1`) where `safeStorage` isn't available, so it can't decrypt them. Easiest path is to export the same key you have saved in the app.
+
+Gemini is the cheapest/fastest provider for iterating on prompts. Claude or GPT-4 will give you higher-fidelity responses to evaluate behavior.
 
 ## Scenario format
 

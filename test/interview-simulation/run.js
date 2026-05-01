@@ -49,32 +49,28 @@ function readApiKeys() {
     };
 
     if (env.gemini || env.groq || env.openai || env.claude) {
-        console.log('[interview-sim] using API keys from environment');
+        const set = ['gemini', 'groq', 'openai', 'claude'].filter(k => env[k]);
+        console.log(`[interview-sim] using API keys from environment: ${set.join(', ')}`);
         return env;
     }
 
-    if (!shim.usingRealElectron) {
-        console.error('[interview-sim] No API keys in env and not running under electron — cannot read CredentialsManager.');
-        console.error('  Set GEMINI_API_KEY (or GROQ/OPENAI/CLAUDE) and re-run, or run via ELECTRON_RUN_AS_NODE=1.');
-        process.exit(1);
-    }
-
-    try {
-        const credPath = path.join(DIST_ROOT, 'electron', 'services', 'CredentialsManager.js');
-        const { CredentialsManager } = require(credPath);
-        const cm = CredentialsManager.getInstance();
-        cm.init();
-        console.log('[interview-sim] using API keys from CredentialsManager');
-        return {
-            gemini: cm.getGeminiApiKey(),
-            groq:   cm.getGroqApiKey(),
-            openai: cm.getOpenaiApiKey(),
-            claude: cm.getClaudeApiKey(),
-        };
-    } catch (err) {
-        console.error('[interview-sim] Failed to load CredentialsManager:', err.message);
-        process.exit(1);
-    }
+    // CredentialsManager uses Electron's safeStorage, which only works inside a
+    // real Electron app context. Under ELECTRON_RUN_AS_NODE=1 there's no app
+    // lifecycle, so safeStorage isn't available and decryption fails. Asking
+    // the user to set env vars is the simplest workable path.
+    console.error('');
+    console.error('[interview-sim] No API keys found in environment.');
+    console.error('');
+    console.error('  CredentialsManager (the keys saved in the app) needs Electron\'s');
+    console.error('  safeStorage, which doesn\'t work in CLI mode. Export at least one');
+    console.error('  provider key before re-running:');
+    console.error('');
+    console.error('    export GEMINI_API_KEY=...');
+    console.error('    # or GROQ_API_KEY / OPENAI_API_KEY / CLAUDE_API_KEY');
+    console.error('');
+    console.error('  Then: npm run simulate:interview -- <scenario-name>');
+    console.error('');
+    process.exit(1);
 }
 
 function listScenarios() {
@@ -262,11 +258,21 @@ function parseArgs(argv) {
     const out = { list: false, scenarioFilter: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
-        if (a === '--list' || a === '-l') out.list = true;
-        else if (a === '--help' || a === '-h') {
+        // Trailing shell comments aren't always stripped by npm's script runner —
+        // ignore everything from a `#` token onward so trailing notes like
+        // `npm run simulate:interview -- backend-swe # the SWE one` still work.
+        if (a === '#' || a.startsWith('#')) break;
+        if (a === '--list' || a === '-l') {
+            out.list = true;
+            continue;
+        }
+        if (a === '--help' || a === '-h') {
             console.log('Usage: simulate:interview [scenario-name] [--list]');
             process.exit(0);
-        } else if (!a.startsWith('-')) {
+        }
+        if (!a.startsWith('-') && out.scenarioFilter === null) {
+            // Take the FIRST positional arg only; ignore extras so a stray
+            // word doesn't silently override the requested scenario.
             out.scenarioFilter = a;
         }
     }
