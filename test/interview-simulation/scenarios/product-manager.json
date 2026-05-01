@@ -6,6 +6,9 @@
     "company": "Notion",
     "candidate": "4 years PM experience, prior background in data analytics, currently at Linear"
   },
+  "priming": [
+    { "speaker": "user", "text": "Quick background for the upcoming interview: I'm a senior product manager at Linear focused on growth. I have four years of PM experience and a prior background in data analytics. Most of my recent shipped work has been in onboarding and activation funnels — I'm strongest on growth metrics, retention curves, and experimentation. Less strong on hard technical depth or platform PM. The roles I'm targeting are senior PM at consumer SaaS companies (Notion, Figma-tier)." }
+  ],
   "turns": [
     { "speaker": "interviewer", "text": "Welcome. Tell me about yourself and a product you've shipped recently that you're proud of." },
     { "action": "what_to_say" },

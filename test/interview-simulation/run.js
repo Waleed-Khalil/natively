@@ -164,6 +164,26 @@ async function runScenario(scenario, im) {
     console.log(`\n=== Running scenario: ${scenario.name} ===`);
     const trace = [];
 
+    // Optional `priming` block — synthetic transcript turns fed BEFORE the
+    // scenario starts so the AI has grounded candidate context on the
+    // opening question. Without this, what_to_say on turn 1 has nothing
+    // but the interviewer's words to anchor on and tends to hallucinate
+    // a generic persona (we saw it confabulate ML/data-infra background
+    // when the candidate is a Go fintech engineer).
+    if (Array.isArray(scenario.priming) && scenario.priming.length > 0) {
+        console.log(`  [priming] feeding ${scenario.priming.length} background turn(s)`);
+        const baseTs = Date.now() - (scenario.priming.length + 1) * 60_000;
+        scenario.priming.forEach((p, idx) => {
+            if (!p.speaker || !p.text) return;
+            im.addTranscript({
+                speaker: p.speaker,
+                text:    p.text,
+                timestamp: baseTs + idx * 60_000,
+                final:   true,
+            }, true);
+        });
+    }
+
     for (let i = 0; i < scenario.turns.length; i++) {
         const turn = scenario.turns[i];
 

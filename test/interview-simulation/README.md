@@ -64,6 +64,21 @@ Scenarios live in `scenarios/*.json`. Each is a sequence of **turns**, where eve
 }
 ```
 
+### Priming (optional)
+
+A scenario can include a `priming` array of synthetic transcript turns fed before the main scenario starts. Use this to anchor the candidate's background so the AI doesn't hallucinate a persona on the opening question.
+
+```json
+"priming": [
+  { "speaker": "user", "text": "Quick context for myself: I'm a senior backend engineer..." }
+],
+"turns": [ ... ]
+```
+
+These turns are pushed into the transcript with timestamps an hour before turn 1, so they read like prior conversation context rather than as part of the live interview. They never trigger actions and they don't appear in the trace section of the report.
+
+**Why this matters:** `WhatToAnswerLLM` grounds on transcript history plus your on-disk `CandidateVoiceProfile`. With zero prior turns and a thin profile, it tends to confabulate a generic persona on the opener (we caught it inventing an "ML infrastructure" background for a Go fintech candidate). Priming gives it real anchor text to reference.
+
 ### Turn shapes
 
 **Transcript turn** — gets fed into `IntelligenceManager.addTranscript()`:

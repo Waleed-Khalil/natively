@@ -6,6 +6,9 @@
     "company": "Stripe",
     "candidate": "5 years experience, mostly Go and Python, currently at a smaller fintech startup"
   },
+  "priming": [
+    { "speaker": "user", "text": "Quick context for myself before this starts: I'm a senior backend engineer with five years of experience. Most of my work is in Go and Python. I currently lead the payments infrastructure team at a smaller fintech — we process around 200,000 transactions per day across a handful of microservices. The roles I'm interviewing for are senior backend / platform-eng roles, so my answers should anchor on distributed systems, payments correctness, observability, and Go runtime details rather than ML or data-pipeline work." }
+  ],
   "turns": [
     { "speaker": "interviewer", "text": "Hi, thanks for joining. Let's start with a quick intro — tell me about yourself and what you've been working on lately." },
     { "action": "what_to_say", "label": "User clicks 'What to answer' on opening question" },
