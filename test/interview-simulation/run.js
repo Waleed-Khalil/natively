@@ -24,6 +24,16 @@ const shim = require('./_electron-shim');
 const path = require('path');
 const fs = require('fs');
 
+// Load .env from the repo root so users with CLAUDE_API_KEY (etc.) in their
+// project .env file can run the simulator without exporting first. Mirrors
+// the same pattern as electron/main.ts when running unpackaged.
+try {
+    require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
+} catch {
+    // dotenv is a devDependency — if it's somehow missing, just continue and
+    // rely on already-set environment variables.
+}
+
 const DIST_ROOT = path.resolve(__dirname, '..', '..', 'dist-electron');
 const SCENARIOS_DIR = path.join(__dirname, 'scenarios');
 const RESULTS_DIR = path.join(__dirname, 'results');
